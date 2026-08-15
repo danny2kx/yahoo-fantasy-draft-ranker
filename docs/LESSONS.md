@@ -83,3 +83,37 @@ revealed it. A parallel possibility — approving while signed into a different
 Yahoo account than the one owning the league — produces an indistinguishable
 failure. `probe_league.py` now lists the authorized account's leagues first and
 exits naming the fix when the target is absent (commit 7b1c60f).
+
+---
+
+## L-004 — On a 401, read the WWW-Authenticate header and probe the most trivial endpoint, because the status code alone cannot tell a bad token from an unscoped one
+
+When: Any authenticated API call fails with 401, and the request was built from
+credentials that were themselves obtained successfully.
+
+Do: Two things before touching the request code. First, print the
+`WWW-Authenticate` response header and the response body, not just the status.
+Providers put the actual reason there, and it is the only part that
+distinguishes "this token is invalid or expired" from "this token is fine but
+the application was never granted this product." Second, call the simplest
+endpoint the API offers, one that takes no identifiers. If that also fails, the
+problem is the credential's scope, and no amount of fixing the URL, the resource
+id, or the account will help.
+
+Root cause: HTTP 401 collapses several unrelated failures into one number. The
+natural next move is to suspect the parts that vary, so the request path, the
+resource id, and the signed-in account all get investigated first. Those are the
+parts that are usually correct. The scope was fixed at application registration
+time, days earlier, in a web form, and nothing in the token exchange reports it.
+Meanwhile a valid token is returned and looks entirely healthy, which argues
+against the true cause.
+
+Evidence: Every Yahoo fantasy endpoint returned 401 with
+`oauth_problem="additional_authorization_required"` this session, after a token
+exchange that succeeded and issued a 1012-character access token. The trivial
+`game/nfl` endpoint, which carries no league id and no user reference, failed
+identically to `league/<key>/settings`. That one comparison ruled out the league
+id and the signed-in account in a single call and pointed straight at the app
+permission, which was the one thing not visible from any code path.
+
+References: L-003, D-003.

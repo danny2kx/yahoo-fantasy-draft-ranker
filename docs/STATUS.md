@@ -23,15 +23,16 @@ rankings, so the snake draft runs itself without the owner attending.
 - `[VERIFIED: probe run, this session]` Joining rankings to `load_ff_playerids()`
   on `fantasypros_id` resolves a Yahoo ID for 133/172 (77%) of the top-180 ECR.
   Misses are 2025 rookies and all DST entries.
-- `[VERIFIED: git log, 64338f9]` Five commits on `master`. Working tree clean.
+- `[VERIFIED: git log, this session]` Seven commits on `master`, in sync with `origin/master`.
 - `[VERIFIED: WebFetch of developer.yahoo.com/oauth2/guide/flows_authcode/]`
   `yahoo_auth.py` matches the documented authorization-code flow: correct
   endpoints, HTTP Basic client authentication, `redirect_uri` present on both
   the code exchange and the refresh grant.
-- `[ASSUMED: never executed -- requires user credentials]` `probe_league.py`
-  parses but has never run against Yahoo. Its JSON traversal of the settings
-  and leagues endpoints is written from the API guide's documented shapes, not
-  from an observed response. Expect to fix a traversal detail on first run.
+- `[ASSUMED: still unobserved]` `probe_league.py` has now been executed against
+  Yahoo, but it fails at the first HTTP call (401, scope) and never reaches its
+  JSON parsing. Its traversal of the settings and leagues shapes is still
+  written from the API guide's documented shapes, not from an observed
+  response. Expect to fix a traversal detail whenever a scoped token exists.
 - `[VERIFIED: WebFetch, 2026-08-15]` **Fantasy Sports is no longer a self-serve
   app permission.** It is not on the app-creation form at all; the form offers
   only OpenID Connect and TW Auction. `developer.yahoo.com/fantasysports/guide/`
@@ -45,15 +46,29 @@ rankings, so the snake draft runs itself without the owner attending.
   No approval turnaround time is published.
 - `[VERIFIED: user-stated, 2026-08-15]` Access application submitted, describing
   personal single-league read-only use. Awaiting review. No response yet.
-- `[ASSUMED: untested]` Whether a token from an app without the Fantasy Sports
-  permission reaches fantasy endpoints at all. Undocumented either way. One
-  `probe_league.py` run against a real token settles it.
+- `[VERIFIED: live probe with a real token, 2026-08-15]` A token from an app
+  without the Fantasy Sports permission **cannot** reach fantasy endpoints.
+  Authorization succeeded and a valid 1012-character access token was issued,
+  but every endpoint returns `401` with
+  `WWW-Authenticate: OAuth oauth_problem="additional_authorization_required"`.
+  Tested `game/nfl`, `users;use_login=1/games`,
+  `users;use_login=1/games;game_keys=nfl/leagues`, and
+  `league/nfl.l.<id>/settings`. The failure is identical on the trivial game
+  endpoint, which rules out a bad league id or a wrong account: enforcement is
+  at the app-permission level. Approval is the only route to the API.
 - `[VERIFIED: user-stated, this session]` The league is a **snake** draft.
 - `[VERIFIED: git ls-files + full-history grep, 2026-08-15]` Repository is safe
   to publish: `.env` was never committed, only `.env.example` with empty secret
   fields; no secret-shaped strings and no personal data anywhere in history.
-- `[VERIFIED: git remote -v, 2026-08-15]` Repository still has **no remote**.
-  A public GitHub repo was agreed but the create command has not been run.
+- `[VERIFIED: gh repo view + git status -sb, 2026-08-15]` Published public at
+  `github.com/danny2kx/yahoo-fantasy-draft-ranker`. `master` tracks
+  `origin/master` and is in sync. This URL was cited on the Yahoo access
+  application, so it must keep resolving.
+- `[VERIFIED: token exchange, 2026-08-15]` `yahoo_auth.py` works end to end
+  against the live endpoints: the authorization URL is accepted, the code
+  redeems, and `tokens/yahoo.json` is written. Only the fantasy scope is
+  missing. Note the venv is required: plain `python` has no `dotenv`, so run
+  `./.venv/Scripts/python.exe`.
 
 ## Blocked
 
@@ -68,11 +83,7 @@ Only remaining input: the owner has not yet supplied the four settings values.
 
 ## Next actions
 
-1. `[Haiku -- mechanical: run one command]` Create the public GitHub repo and
-   push: `gh repo create yahoo-fantasy-draft-ranker --public --source=.
-   --remote=origin --push`. The URL was cited on the Yahoo access application,
-   so it must resolve.
-2. `[Haiku -- mechanical: transcribe from a web page]` Owner reads the league's
+1. `[Haiku -- mechanical: transcribe from a web page]` Owner reads the league's
    Settings page and reports: scoring type (standard / half PPR / full PPR, or
    the custom stat modifier table), the full roster slot list with counts,
    number of teams, and draft date and time. Record verbatim in this file.
