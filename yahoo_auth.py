@@ -61,16 +61,33 @@ def _exchange(payload: dict) -> dict:
     response.raise_for_status()
     tokens = response.json()
     tokens["expires_at"] = time.time() + tokens["expires_in"]
+    if "refresh_token" not in tokens:
+        # A refresh response need not reissue the refresh token. Carrying the
+        # previous one forward keeps the file usable for the next refresh.
+        previous = _load_tokens() or {}
+        if "refresh_token" in previous:
+            tokens["refresh_token"] = previous["refresh_token"]
     _save_tokens(tokens)
     return tokens
 
 
-def _authorize_interactively() -> dict:
+def authorize_url() -> str:
     client_id, _, redirect_uri = _credentials()
     query = urlencode(
         {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code"}
     )
-    url = f"{AUTH_URL}?{query}"
+    return f"{AUTH_URL}?{query}"
+
+
+def redeem_code(code: str) -> dict:
+    _, _, redirect_uri = _credentials()
+    return _exchange(
+        {"grant_type": "authorization_code", "redirect_uri": redirect_uri, "code": code}
+    )
+
+
+def _authorize_interactively() -> dict:
+    url = authorize_url()
     print("Opening browser to authorize. If it does not open, visit:\n" + url)
     webbrowser.open(url)
     print(
@@ -78,10 +95,7 @@ def _authorize_interactively() -> dict:
         "(nothing is listening on that port -- this is expected).\n"
         "Copy the value of 'code=' out of the address bar and paste it here."
     )
-    code = input("code: ").strip()
-    return _exchange(
-        {"grant_type": "authorization_code", "redirect_uri": redirect_uri, "code": code}
-    )
+    return redeem_code(input("code: ").strip())
 
 
 def get_access_token() -> str:
@@ -90,8 +104,15 @@ def get_access_token() -> str:
     if tokens is None:
         tokens = _authorize_interactively()
     elif tokens["expires_at"] - REFRESH_MARGIN_SECONDS < time.time():
+        # Yahoo requires redirect_uri on the refresh grant too, not only on the
+        # initial code exchange. Omitting it fails at the first refresh.
+        _, _, redirect_uri = _credentials()
         tokens = _exchange(
-            {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
+            {
+                "grant_type": "refresh_token",
+                "redirect_uri": redirect_uri,
+                "refresh_token": tokens["refresh_token"],
+            }
         )
     return tokens["access_token"]
 
@@ -107,3 +128,16 @@ def api_get(path: str) -> dict:
     )
     response.raise_for_status()
     return response.json()
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1:
+        redeem_code(sys.argv[1])
+        print(f"Authorized. Tokens saved to {TOKEN_PATH}")
+    else:
+        print("Open this URL, approve, then copy the 'code=' value from the")
+        print("address bar of the page that fails to load:\n")
+        print(authorize_url())
+        print("\nThen run:  python yahoo_auth.py <code>")
