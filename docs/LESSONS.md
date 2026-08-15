@@ -176,3 +176,43 @@ showed the slices are separate populations, that the `ro` set includes defensive
 players, and that the only whole-league redraft ranking available comes from a
 single PPR page. The intended interpolation was not possible at all, which the
 descriptive grouping revealed in one query.
+
+---
+
+## L-007 — In any "value over a baseline" score, lowering one group's baseline promotes that group, so a group can only be demoted by moving the *other* baselines
+
+When: Tuning any metric of the form `score = value - baseline`, where each group
+carries its own baseline and the groups are then ranked against each other.
+Value-based drafting is one instance; so is scoring against a per-segment
+target, a per-cohort benchmark, or a per-category budget.
+
+Do: Before choosing which way to move a baseline, write the subtraction down and
+read the sign. A deeper, weaker, or more pessimistic baseline is a *smaller*
+number subtracted, which makes the group score *higher*. Then check whether the
+lever can reach the goal at all: because every group is ranked on the same
+scale, moving one group's baseline alone can only push that group up or down as
+a block. Demoting a group relative to the others requires moving the others.
+Finally, state the expected direction and magnitude before running the change,
+and treat a result in the opposite direction as a defect in the reasoning, not
+as a surprising property of the data.
+
+Root cause: The word chosen for the lever usually describes the intent, not the
+arithmetic. "Set a deeper replacement level for quarterbacks because they are
+easy to replace" reads as a demotion, and the phrase "easy to replace" reinforces
+it, but the operation it names is subtracting less, which is a promotion. The
+mistake is invisible in review because the sentence is true and the direction is
+never checked against the formula. It also survives the first run, because the
+board still looks well-formed and correctly ordered — only the position of one
+group has moved, in the direction nobody re-read.
+
+Evidence: A prescribed fix moved the quarterback replacement rank from 12 to 18
+to push quarterbacks down the draft board. The level fell from 296.6 to 244.2,
+so every quarterback's score rose by 52 points. The top quarterback moved from
+7th overall to 3rd and four quarterbacks landed inside the top 12, against an
+acceptance test of zero. The same error appeared a second time in the same plan,
+for tight ends, in the opposite direction: pinning the tight-end baseline
+shallow to "protect the tight-end gap" dropped the top tight end from 21st to
+51st. What actually worked was leaving the quarterback baseline where it was and
+moving running back and receiver from the 24th player to the 49th and 70th.
+
+References: D-005.

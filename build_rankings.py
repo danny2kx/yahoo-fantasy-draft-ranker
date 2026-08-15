@@ -32,6 +32,22 @@ OUT = Path(__file__).parent / "out"
 # than the standalone extrapolation D-001 rejected.
 MAX_RANK_SHIFT = 8
 
+# Every skill slot the league drafts: starters, flex and bench. Benches are
+# almost entirely running backs and receivers, which is why the real free-agent
+# running back sits far deeper than the last starting slot.
+SKILL_SLOTS = league.TEAMS * (
+    league.STARTERS["QB"] + league.STARTERS["RB"] + league.STARTERS["WR"]
+    + league.STARTERS["TE"] + league.STARTERS["W/R/T"] + league.BENCH
+)
+
+# Players per team at the positions whose roster count is set by roster shape
+# rather than by value. Quarterback is one per team: in a one-QB league nobody
+# drafts a backup, so the 13th quarterback is always on waivers and the spread
+# from QB1 to QB12 is too small to pay an early pick for. Tight end is two per
+# team, because leaving it to the value allocation hands it 42 slots, which is
+# three and a half tight ends per roster.
+PINNED_PER_TEAM = {"QB": 1, "TE": 2}
+
 SIGNAL_WEIGHTS = {
     "share": 0.35,
     "td_luck": 0.25,
@@ -304,31 +320,59 @@ def build() -> pl.DataFrame:
 # --------------------------------------------------------------------------
 
 def replacement_levels(df: pl.DataFrame) -> dict[str, float]:
-    """Points of the last player at each position who fills a starting slot.
+    """Points of the last player at each position worth a roster slot.
 
-    The two W/R/T slots are not assigned by assumption. Base slots are filled
-    first, then every remaining running back, receiver and tight end competes
-    for the flex slots on projected points alone, so the flex split falls out of
-    this league's scoring rather than out of a guess.
+    Not the last player who fills a *starting* slot: a starting-slot baseline
+    values a position by how many of it you must start, when what matters is how
+    many of it get taken before you would have to settle. Running backs and
+    receivers fill the benches, so their real floor is far deeper than the last
+    starter, while quarterbacks and tight ends barely touch a bench at all. That
+    difference is the whole reason a one-QB league does not draft a quarterback
+    early.
+
+    Running back and receiver depth is not assumed. The positions in
+    PINNED_PER_TEAM are fixed, every other player competes for the remaining
+    slots on value alone, and the two feed each other until the depths stop
+    moving, which takes a couple of passes.
     """
-    levels: dict[str, float] = {}
-    flex_pool = []
+    positions = ("QB", "RB", "WR", "TE")
+    ranked = {
+        pos: df.filter(pl.col("pos") == pos).sort("points", descending=True)
+        for pos in positions
+    }
+    # A position can never be shallower than the slots the league must start.
+    floor = {pos: league.TEAMS * league.STARTERS[pos] for pos in positions}
+    pinned = {pos: league.TEAMS * n for pos, n in PINNED_PER_TEAM.items()}
+    allocated = [pos for pos in positions if pos not in pinned]
 
-    for pos in ("QB", "RB", "WR", "TE"):
-        base_slots = league.TEAMS * league.STARTERS[pos]
-        ranked = df.filter(pl.col("pos") == pos).sort("points", descending=True)
-        starters = ranked.head(base_slots)
-        levels[pos] = float(starters["points"].min()) if starters.height else 0.0
-        if pos in league.FLEX_ELIGIBLE:
-            flex_pool.append(ranked.slice(base_slots))
+    def levels_for(depths: dict[str, int]) -> dict[str, float]:
+        return {
+            pos: float(ranked[pos].head(n)["points"].min()) if ranked[pos].height else 0.0
+            for pos, n in depths.items()
+        }
 
-    flex_slots = league.TEAMS * league.STARTERS["W/R/T"]
-    pool = pl.concat(flex_pool).sort("points", descending=True).head(flex_slots)
-    for pos in league.FLEX_ELIGIBLE:
-        taken = pool.filter(pl.col("pos") == pos)
-        if taken.height:
-            levels[pos] = float(taken["points"].min())
-    return levels
+    depths = floor | pinned
+    for _ in range(25):
+        levels = levels_for(depths)
+        drafted = (
+            df.with_columns(
+                replacement=pl.col("pos").replace_strict(levels, default=0.0)
+            )
+            .with_columns(vbd=pl.col("points") - pl.col("replacement"))
+            .sort("vbd", descending=True)
+            .head(SKILL_SLOTS)
+        )
+        settled = dict(pinned)
+        for pos in allocated:
+            settled[pos] = max(drafted.filter(pl.col("pos") == pos).height, floor[pos])
+        if settled == depths:
+            break
+        depths = settled
+
+    print("Roster slots each position is worth: " + "  ".join(
+        f"{pos} {n}" for pos, n in sorted(depths.items())
+    ))
+    return levels_for(depths)
 
 
 def assign_tiers(df: pl.DataFrame) -> pl.DataFrame:
@@ -453,12 +497,13 @@ def report(board: pl.DataFrame) -> None:
         )
 
     movers = board.filter(pl.col("rank_shift").abs() >= 4).sort("rank_shift")
-    print(f"\nBiggest downgrades ({movers.height} players moved 4+ ranks):")
-    for r in movers.head(8).iter_rows(named=True):
-        print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}{r['rank_shift']:>+4.0f}")
-    print("Biggest upgrades:")
-    for r in movers.tail(8).reverse().iter_rows(named=True):
-        print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}{r['rank_shift']:>+4.0f}")
+    down = movers.filter(pl.col("rank_shift") < 0)
+    up = movers.filter(pl.col("rank_shift") > 0).reverse()
+    print(f"\n{movers.height} players moved 4+ ranks.")
+    for label, group in (("Biggest downgrades", down), ("Biggest upgrades", up)):
+        print(f"{label} ({group.height}):")
+        for r in group.head(8).iter_rows(named=True):
+            print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}{r['rank_shift']:>+4.0f}")
 
     rookies = board.filter(pl.col("draft_round").is_not_null())
     print(f"\n{rookies.height} rookies on the board -- these need manual RSP review:")

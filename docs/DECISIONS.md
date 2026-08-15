@@ -165,3 +165,59 @@ TE 120.8. Half-PPR point calculation verified against 2025 season totals in
 `scoring.py`.
 
 References: D-001, D-002, L-005, L-006.
+
+---
+
+## D-005 — Replacement level is the last player worth a roster slot, with quarterback and tight end pinned by roster shape
+
+Status: Decided (2026-08-15). Supersedes the replacement-level clause of D-004
+and closes Q-005.
+
+Decision: Set each position's replacement level at the points of the last
+player worth one of the 156 skill slots this league drafts (12 teams x 1 QB +
+2 RB + 2 WR + 1 TE + 2 W/R/T + 5 bench), not at the last player filling a
+starting slot. Quarterback is pinned at one per team and tight end at two per
+team; running back and receiver depth is allocated by value across the
+remaining slots, iterated with the resulting levels until the depths stop
+moving. The settled depths are QB 12, TE 24, RB 49, WR 70, giving levels
+QB 296.6, TE 88.7, RB 85.8, WR 81.7.
+
+Why: D-004 deferred a fix for quarterbacks being overvalued, and named the
+wrong lever. Value-based drafting scores a player as points minus replacement,
+so moving a position's baseline deeper *lowers* the subtracted number and
+*raises* every player at that position. The board only demotes quarterbacks
+when the other positions' baselines move deeper relative to theirs. That
+happens naturally once the bench is counted, because benches are almost
+entirely running backs and receivers: RB and WR baselines fall from roughly the
+24th to the 49th and 70th, while the quarterback floor does not move at all.
+Pinning quarterback at one per team is the streaming assumption stated
+directly — in a one-QB league nobody drafts a backup, so QB13 is always on
+waivers.
+
+Tradeoff: The two pins are judgements, not derived quantities, which reopens in
+a small way the objection D-004 raised against assumed ratios. Pinning tight
+end also removes it from the value allocation, so the flex is no longer split
+purely by projected points as D-004 specified. The iteration is a fixed-point
+search with no proof of convergence; it settles in two passes on this data and
+is capped at 25.
+
+Alternative rejected: Move only the quarterback baseline deeper, to rank 18.
+This was the fix D-004 deferred and STATUS prescribed, and it is backwards. Run
+this session, it moved the quarterback level from 296.6 to 244.2 and pushed the
+top quarterback from 7th overall to 3rd, with four quarterbacks inside the top
+12 — the opposite of its stated goal. Also rejected: pinning tight end at one
+per team, which is what STATUS recommended in order to protect the tight-end
+gap. It does the reverse, dropping the top tight end from 21st to 51st, because
+raising his baseline shrinks his measured value. Also rejected: leaving every
+position to the value allocation, which is self-consistent but hands tight end
+42 roster slots, three and a half per team, which no league drafts.
+
+Evidence: `build_rankings.py` run this session. Console reports depths QB 12,
+RB 49, TE 24, WR 70 and levels QB 296.6, RB 85.8, TE 88.7, WR 81.7. Read back
+from `out/yahoo_prerank.txt`: 216 names, all unique, no blanks, zero
+quarterbacks in the top 12, first quarterback at line 19, first tight end at
+line 21, first kicker or defence at line 152. Comparison boards for the
+rejected alternatives were produced by scratch probes over a cached copy of the
+same projection frame, so only the baseline differed between them.
+
+References: D-001, D-004, L-007.

@@ -2,7 +2,7 @@
 
 Snapshot of the latest session. Overwritten each handoff.
 
-**As of:** 2026-08-15 (Session 2)
+**As of:** 2026-08-15 (Session 3)
 
 ## Goal
 
@@ -27,18 +27,29 @@ rankings, so the snake draft runs itself without the owner attending.
   Departures from Yahoo defaults: passing TD 5 (default 4), interception -2
   (default -1), every missed FG -1 (default 0), missed PAT -1 (default 0),
   DST sack 1.5 (default 1).
-- `[VERIFIED: build_rankings.py output, this session]` Replacement levels with
-  the flex allocated by projected points: QB 296.6, RB 135.9, WR 134.8,
-  TE 120.8.
+- `[VERIFIED: build_rankings.py output + read back from out/yahoo_prerank.txt,
+  2026-08-15 session 3]` Replacement level is now the last player worth one of
+  the league's 156 skill roster slots, per **D-005**, which supersedes D-004 on
+  this point and closes Q-005. Settled depths QB 12, TE 24, RB 49, WR 70; levels
+  QB 296.6, TE 88.7, RB 85.8, WR 81.7. The board holds **zero quarterbacks in
+  the top 12**; first QB is Drake Maye at 19, first TE Trey McBride at 21, first
+  kicker or defence at 152. `out/yahoo_prerank.txt` is 216 names, all unique, no
+  blanks. **The prescribed fix in the session-2 handoff (QB rank 18) was wrong
+  in direction and was not applied** — see D-005's rejected alternatives and
+  L-007.
 - `[VERIFIED: build_rankings.py output, this session]` The bounded signals move
   players as designed. Largest upgrades: Justin Jefferson +8 (top-3 target
   share, 2 TDs on 8.6 expected), CeeDee Lamb +7, Drake Maye +7. Largest
   downgrade: Jahmyr Gibbs -5 (18 TDs on 10.7 expected). 15 players moved 4+
   ranks; the cap is 8.
-- `[VERIFIED: build_rankings.py output, this session]` Four round-1 rookies
-  reached the board and are flagged for manual review: Jeremiyah Love (ARI,
-  p3), Carnell Tate (TEN, p4), Jordyn Tyson (NO, p8), Jadarian Price (SEA,
-  p32). All land in tier 12.
+- `[VERIFIED: build_rankings.py output, 2026-08-15 session 3]` The deeper
+  baselines lengthened the board, so **nine** rookies now reach it rather than
+  four, seven of them round-1: Jeremiyah Love (RB ARI p3, tier 14), Jadarian
+  Price (RB SEA p32, tier 17), Carnell Tate (WR TEN p4, tier 17), Jordyn Tyson
+  (WR NO p8, tier 18), Makai Lemon (WR PHI p20, tier 18), KC Concepcion (WR CLE
+  p24, tier 19), Omar Cooper Jr. (WR NYJ p30, tier 19), plus round-2 Denzel
+  Boston (WR CLE p39) and De'Zhaun Stribling (WR SF p33). All still need the
+  manual review of Q-006; only Love is high enough on the board to matter much.
 - `[VERIFIED: id_bridge probe, this session]` The consensus list joins to gsis
   ids for 180/180 of the top-180 skill players; 168 of those hit both
   `load_player_stats` and `load_ff_opportunity`. The 12 misses are rookies with
@@ -64,10 +75,18 @@ rankings, so the snake draft runs itself without the owner attending.
 
 ## Parked
 
-- `references/FF25.xlsx` — untracked, 142 KB, created 2026-08-15 11:28. Not
-  written by this session; owner's own file. Left untracked deliberately. **The
-  repository is public**, so before this is ever committed it needs a check for
-  real manager names or other personal data.
+- `references/FF25.xlsx` — untracked, 142 KB, owner's own file. **Assessed
+  2026-08-15 (session 3): keep untracked, no reusable data.** It is the *2025*
+  draft (top of board Chase, Barkley, Tyreek; the stat column is `FPPG_2024`),
+  across 7 sheets of which 3 are near-duplicate "Copy of Rank" versions that
+  disagree with each other. It also carries real defects: Josh Jacobs has
+  Position `GB` and Team `RB` (columns swapped), `#N/A` VLOOKUPs in "Copy of
+  Rank 1", and mojibake names in the `FBG` sheet. Two *concepts* in it are
+  genuinely missing from the pipeline and became next action 4:
+  `Schedule_Rating` and `Role_Change_Multiplier`. `O_Line_Rank` is not in
+  nflreadpy and `Red_Zone_Targets` is already covered by the touchdown-regression
+  signal. PII scan clean: 2,100 shared strings, zero manager names, emails or
+  league identifiers — only player names and analysis text.
 
 ## Blocked
 
@@ -77,41 +96,40 @@ Yahoo's pre-rank page by hand regardless because write access does not exist.
 
 ## Next actions
 
-1. `[Haiku -- mechanical: one-line constant change, then rerun]` Apply the QB
-   replacement-level fix in `build_rankings.py`: in `replacement_levels()`, use
-   rank 18 instead of `league.TEAMS * league.STARTERS["QB"]` (12) for QB only.
-   Rationale is D-004's tradeoff paragraph: quarterbacks are streamable, so
-   QB12 is not the true replacement, and the current board puts four QBs in the
-   top 24 with Drake Maye 7th overall. Leave TE at 12; the McBride gap is real.
-   Then rerun `./.venv/Scripts/python.exe build_rankings.py` and confirm no QB
-   sits inside the top 12 of the board.
-2. `[Haiku -- mechanical: fix a print-formatting branch]` In
-   `build_rankings.py::report()`, the "Biggest downgrades" list prints upgrades
-   when fewer than 8 players moved down. Filter each list by sign before
-   printing. Console output only; neither output file is affected.
-3. `[Sonnet -- judgment against an external source]` Review the four round-1
-   rookies against Matt Waldman's Rookie Scouting Portfolio ($21.95, not yet
-   purchased) and move them by hand in `out/yahoo_prerank.txt`. The model knows
-   their draft capital and landing spot; it cannot evaluate whether they can
-   play, and must not pretend to.
-4. `[Haiku -- mechanical: transcribe a list into a web form]` Enter
+Session-2 next actions 1 and 2 are DONE — 1 by a different and opposite fix
+(D-005), 2 as written.
+
+1. `[Owner -- judgment against an external source]` Review the round-1 rookies
+   against Matt Waldman's Rookie Scouting Portfolio ($21.95, **not purchased**)
+   and move them by hand in `out/yahoo_prerank.txt`. The model knows their draft
+   capital and landing spot; it cannot evaluate whether they can play, and must
+   not pretend to. **Not attempted in session 3** because the source does not
+   exist on disk. Jeremiyah Love at line 23 is the only one high enough to cost
+   a real pick; the rest sit in tiers 17-19 where an error is cheap.
+2. `[Owner -- manual: transcribe a list into a web form]` Enter
    `out/yahoo_prerank.txt` into Yahoo's pre-draft rankings page before
-   2026-09-05 16:00 CDT.
-5. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
+   2026-09-05 16:00 CDT. No agent in this project has a browser, so this is the
+   owner's action.
+3. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
    API application, put the credentials in `.env`, authorize, and run
    `probe_league.py`. Fix its JSON traversal against the real response and
    check the observed settings against `league.py`.
+4. `[Sonnet -- a real gap, cheap to try]` The model has **no strength-of-schedule
+   signal**, and no way to say "changed teams, and it is an upgrade" — the usage
+   signal is simply dropped on a team change. Both concepts came out of the
+   owner's own 2025 spreadsheet (see Parked). Schedule strength is derivable
+   from live data; the role-change call is human judgement and probably belongs
+   as a manual override column rather than a signal.
 
 ## Open questions
 
 ```
-Q-005: Should the QB replacement level be rank 12 (last starter) or
-  deeper (streaming-adjusted)?
-Blocker: a method choice. Both are defensible VBD implementations.
-Resolution: next action 1 applies rank 18 and the board is re-read. If no
-  QB sits in the top 12 afterwards, the question closes. The
-  recommendation was given this session and not yet confirmed by the
-  owner.
+Q-005: ANSWERED 2026-08-15 (session 3). Neither. The question assumed the
+  QB baseline was the lever, and it is not: a deeper QB baseline raises
+  quarterbacks rather than lowering them (L-007). QB stays at rank 12;
+  what moved was RB to 49 and WR to 70, by counting bench slots. Owner
+  confirmed the method and asked for quarterbacks lower still, which the
+  QB pin delivers. See D-005.
 ```
 
 ```
