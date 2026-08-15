@@ -29,6 +29,18 @@ STARTERS = {
 BENCH = 5
 IR = 1
 
+# The owner's position in the draft order, user-stated. The injured-reserve slot
+# is not drafted, so it does not add a round.
+DRAFT_SLOT = 4
+ROUNDS = sum(STARTERS.values()) + BENCH
+
+# Overall pick numbers the owner holds. A snake reverses every other round, so
+# an early slot pays for its round-1 pick with a late one in round 2.
+OWNER_PICKS = tuple(
+    (rnd - 1) * TEAMS + (DRAFT_SLOT if rnd % 2 else TEAMS - DRAFT_SLOT + 1)
+    for rnd in range(1, ROUNDS + 1)
+)
+
 # Scoring is fractional and allows negatives, so no rounding or flooring
 # anywhere in the points calculation.
 FRACTIONAL_POINTS = True

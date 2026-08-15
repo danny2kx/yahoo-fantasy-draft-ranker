@@ -6,13 +6,14 @@ Method is D-001 and D-003 in docs/DECISIONS.md:
   2. That rank is mapped onto a points curve built from the 2023-2025 seasons,
      scored under this league's own rules, so the points are correct for half
      PPR whatever the consensus was published under.
-  3. Four bounded signals nudge a player up or down within his position, capped
-     so the consensus always remains the anchor.
+  3. Five bounded signals then add or subtract points from what the curve
+     returned, capped so the consensus always remains the anchor.
   4. Value-based drafting converts points into a single cross-position order.
 
 Run: python build_rankings.py
 """
 
+import csv
 import math
 from pathlib import Path
 
@@ -27,10 +28,25 @@ SIGNAL_SEASON = 2025
 DRAFT_CLASS = 2026
 OUT = Path(__file__).parent / "out"
 
-# No single signal may move a player more than this many ranks within his
-# position. The cap is what keeps this an adjustment to the consensus rather
-# than the standalone extrapolation D-001 rejected.
-MAX_RANK_SHIFT = 8
+# The owner's own consensus export, in the scoring his league actually uses.
+# Untracked: it is a redistributed third-party ranking, not this project's data.
+ANCHOR_CSV = (
+    Path(__file__).parent / "references" / "FantasyPros_2026_Draft_ALL_Rankings.csv"
+)
+
+# The combined signal adjusts a player's projected points, never his rank. A
+# capped rank move is not a capped adjustment: the curve is steepest at the top
+# of a position, so the same 8-rank cap was worth 86 points to the best running
+# back and 20 to a middling one. Capping the points instead makes the bound mean
+# one thing everywhere. The number is a claim that can be argued with: no single
+# season of usage evidence outweighs the expert consensus by more than about a
+# point and a half per game.
+MAX_POINT_SHIFT = 24.0
+
+# Points per unit of combined signal. Set so the cap binds at the same 1.33
+# standard deviations it bound at under the rank cap, preserving the intent that
+# an exceptional player reaches the cap while an ordinary one barely moves.
+POINTS_PER_SIGNAL = 18.0
 
 # Every skill slot the league drafts: starters, flex and bench. Benches are
 # almost entirely running backs and receivers, which is why the real free-agent
@@ -193,6 +209,32 @@ def draft_capital() -> tuple[pl.DataFrame, pl.DataFrame]:
 # 3. Assemble.
 # --------------------------------------------------------------------------
 
+def anchor_ranks() -> pl.DataFrame:
+    """The owner's own consensus export, which sets the base order.
+
+    The free feed publishes one whole-league redraft page and it is full PPR,
+    which over-ranks reception volume for this half-PPR league. The export is
+    the scoring the owner selected, so it is the closer anchor. It carries no
+    player id, which is why the feed is still read below: purely to recover one.
+
+    The stray blank-rank row the export contains is dropped, and the ragged line
+    it sits on is why this is parsed with the csv module rather than polars.
+    """
+    with ANCHOR_CSV.open(encoding="utf-8-sig") as handle:
+        rows = [r for r in csv.DictReader(handle) if r["RK"]]
+    if not rows:
+        raise SystemExit(f"{ANCHOR_CSV} has no ranked rows; check the export")
+    return pl.DataFrame(
+        {
+            "player": [r["PLAYER NAME"] for r in rows],
+            "pos": [r["POS"].rstrip("0123456789") for r in rows],
+            "team": [r["TEAM"] for r in rows],
+            "ecr": [float(r["RK"]) for r in rows],
+            "bye": [int(r["BYE WEEK"]) if r["BYE WEEK"] else None for r in rows],
+        }
+    ).with_columns(team=norm_team(pl.col("team")))
+
+
 def consensus() -> pl.DataFrame:
     ecr = nfl.load_ff_rankings().filter(pl.col("page_type") == "redraft-overall")
     if ecr.height != ecr["id"].n_unique():
@@ -207,21 +249,22 @@ def consensus() -> pl.DataFrame:
         )
         .unique(subset=["id"])
     )
-    return (
-        ecr.select(
-            pl.col("id").cast(pl.Utf8),
-            "player",
-            "pos",
-            team=norm_team(pl.col("team")),
-            ecr="ecr",
-            sd="sd",
-            best="best",
-            worst="worst",
-            bye="bye",
-        )
-        .join(bridge, on="id", how="left")
-        .rename({"gsis_id": "player_id"})
+    # Name and position, not name alone: the feed's whole-league page includes
+    # defensive players, so a shared name could otherwise match the wrong one.
+    ids = ecr.select(pl.col("id").cast(pl.Utf8), "player", "pos").unique(
+        subset=["player", "pos"]
     )
+
+    base = anchor_ranks()
+    out = base.join(ids, on=["player", "pos"], how="left").join(
+        bridge, on="id", how="left"
+    )
+    if out.height != base.height:
+        raise SystemExit("id join duplicated anchor rows; check for shared names")
+    matched = out.filter(pl.col("id").is_not_null() & (pl.col("ecr") <= 150)).height
+    if matched < 140:
+        raise SystemExit(f"only {matched}/150 of the anchor's top 150 resolved an id")
+    return out.rename({"gsis_id": "player_id"})
 
 
 def build() -> pl.DataFrame:
@@ -285,33 +328,44 @@ def build() -> pl.DataFrame:
     )
 
     # Weights sum to one, so the combined signal stays on the z-scale of its
-    # inputs. Six ranks per standard deviation puts a genuinely exceptional
-    # player at the cap and leaves an ordinary one barely moved.
+    # inputs.
     combined = sum(
         pl.col(name) * weight for name, weight in SIGNAL_WEIGHTS.items()
     )
     df = df.with_columns(signal=combined).with_columns(
-        rank_shift=(pl.col("signal") * 6.0)
-        .round(0)
-        .clip(-MAX_RANK_SHIFT, MAX_RANK_SHIFT)
+        point_shift=(pl.col("signal") * POINTS_PER_SIGNAL)
+        .clip(-MAX_POINT_SHIFT, MAX_POINT_SHIFT)
     )
 
-    # Re-rank within position: consensus order, moved by the capped shift.
+    # The consensus alone decides which rank is read off the curve. The signal
+    # is applied to the points that lookup returned, never to the rank feeding
+    # it, so the cap bounds value rather than position.
     df = df.with_columns(
-        base_pos_rank=pl.col("ecr").rank("ordinal").over("pos")
-    ).with_columns(
-        adj_key=pl.col("base_pos_rank") - pl.col("rank_shift")
-    ).with_columns(
-        pos_rank=pl.col("adj_key").rank("ordinal").over("pos").cast(pl.Int64)
+        base_pos_rank=pl.col("ecr").rank("ordinal").over("pos").cast(pl.Int64)
     )
-
-    curve = points_curve().rename({"position": "pos"})
-    df = df.join(curve.select("pos", "pos_rank", "curve_points"),
-                 on=["pos", "pos_rank"], how="left")
+    curve = points_curve().rename({"position": "pos", "pos_rank": "base_pos_rank"})
+    df = df.join(
+        curve.select("pos", "base_pos_rank", "curve_points"),
+        on=["pos", "base_pos_rank"],
+        how="left",
+    )
 
     # Beyond the curve's last observed rank a player is below every replacement
     # level anyway, so flooring at zero costs nothing and keeps him in the list.
-    df = df.with_columns(points=pl.col("curve_points").fill_null(0.0))
+    df = df.with_columns(
+        points=pl.when(pl.col("curve_points").is_null())
+        .then(0.0)
+        .otherwise(
+            (pl.col("curve_points") + pl.col("point_shift")).clip(lower_bound=0.0)
+        )
+    ).with_columns(
+        pos_rank=pl.col("points")
+        .rank("ordinal", descending=True)
+        .over("pos")
+        .cast(pl.Int64)
+    ).with_columns(
+        rank_move=(pl.col("base_pos_rank") - pl.col("pos_rank")).cast(pl.Int64)
+    )
     return df
 
 
@@ -468,7 +522,8 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
         rows.append(f'<h2>Tier {tier[0]}</h2><table>')
         rows.append(
             "<tr><th>#</th><th>Player</th><th>Pos</th><th>Pos tier</th><th>Team</th>"
-            "<th>Proj</th><th>VBD</th><th>Shift</th><th>Bye</th><th>Notes</th></tr>"
+            "<th>Proj</th><th>VBD</th><th>Adj</th><th>Moved</th><th>Bye</th>"
+            "<th>Notes</th></tr>"
         )
         for i, r in enumerate(group.iter_rows(named=True), 1):
             notes = []
@@ -485,7 +540,8 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
                 f"<td>{r['pos']}{r['pos_slot']}</td>"
                 f"<td>{r['pos']} T{r['pos_tier']}</td>"
                 f"<td>{r['team']}</td><td>{r['points']:.0f}</td>"
-                f"<td>{r['vbd']:.0f}</td><td>{r['rank_shift']:+.0f}</td>"
+                f"<td>{r['vbd']:.0f}</td><td>{r['point_shift']:+.1f}</td>"
+                f"<td>{r['rank_move']:+d}</td>"
                 f"<td>{r['bye'] or ''}</td><td>{'; '.join(notes)}</td></tr>"
             )
         rows.append("</table>")
@@ -518,7 +574,7 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
  table {{ border-collapse: collapse; width: 100%; }}
  th, td {{ text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #ddd; }}
  th {{ background: #f4f4f4; }}
- td:nth-child(10) {{ color: #a33; font-size: 12px; }}
+ td:nth-child(11) {{ color: #a33; font-size: 12px; }}
  p.postier {{ margin: .4rem 0 .8rem; padding-left: .6rem;
               border-left: 3px solid #ccc; }}
  span.vbd {{ color: #777; font-size: 12px; }}
@@ -535,22 +591,28 @@ coin flip. Kickers and defences are deliberately absent, take them last.</p>
 
 
 def report(board: pl.DataFrame) -> None:
-    print("\nTop 24 of the board:")
-    print(f"  {'#':>3} {'player':<24}{'pos':<5}{'tm':<5}{'proj':>7}{'vbd':>7}{'shift':>7}{'tier':>6}")
+    print("\nTop 24 of the board -- rounds 1 and 2 of a 12-team snake:")
+    print(f"  {'#':>3} {'player':<24}{'pos':<5}{'tm':<5}{'proj':>7}{'vbd':>7}"
+          f"{'adj':>7}{'moved':>7}{'tier':>6}")
     for i, r in enumerate(board.head(24).iter_rows(named=True), 1):
+        if i in (1, 13):
+            print(f"  -- round {1 if i == 1 else 2} --")
+        mine = " <== your pick" if i in league.OWNER_PICKS else ""
         print(
             f"  {i:>3} {str(r['player'])[:23]:<24}{r['pos']:<5}{str(r['team']):<5}"
-            f"{r['points']:>7.1f}{r['vbd']:>7.1f}{r['rank_shift']:>+7.0f}{r['tier']:>6}"
+            f"{r['points']:>7.1f}{r['vbd']:>7.1f}{r['point_shift']:>+7.1f}"
+            f"{r['rank_move']:>+7d}{r['tier']:>6}{mine}"
         )
 
-    movers = board.filter(pl.col("rank_shift").abs() >= 4).sort("rank_shift")
-    down = movers.filter(pl.col("rank_shift") < 0)
-    up = movers.filter(pl.col("rank_shift") > 0).reverse()
-    print(f"\n{movers.height} players moved 4+ ranks.")
+    movers = board.filter(pl.col("point_shift").abs() >= 8).sort("point_shift")
+    down = movers.filter(pl.col("point_shift") < 0)
+    up = movers.filter(pl.col("point_shift") > 0).reverse()
+    print(f"\n{movers.height} players adjusted 8+ points (cap {MAX_POINT_SHIFT:.0f}).")
     for label, group in (("Biggest downgrades", down), ("Biggest upgrades", up)):
         print(f"{label} ({group.height}):")
         for r in group.head(8).iter_rows(named=True):
-            print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}{r['rank_shift']:>+4.0f}")
+            print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}"
+                  f"{r['point_shift']:>+7.1f} pts{r['rank_move']:>+4d} ranks")
 
     print("\nTop of each position, with the tier break marked:")
     for group in board.partition_by("pos", maintain_order=True):
