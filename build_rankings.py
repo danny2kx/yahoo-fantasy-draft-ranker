@@ -815,10 +815,101 @@ def write_prerank(board: pl.DataFrame, df: pl.DataFrame) -> None:
     print(f"\nWrote {path}  ({len(lines)} players)")
 
 
+# Kept out of the page's f-string so the braces need no doubling. Everything the
+# filter bar needs is already on each row as a data attribute, so this hides and
+# shows what is there and computes nothing.
+FILTER_SCRIPT = """
+<script>
+(function () {
+  var name = document.getElementById('f-name');
+  var team = document.getElementById('f-team');
+  var bye = document.getElementById('f-bye');
+  var rookie = document.getElementById('f-rookie');
+  var clear = document.getElementById('f-clear');
+  var count = document.getElementById('f-count');
+  var posButtons = Array.prototype.slice.call(
+    document.querySelectorAll('button.f-pos'));
+
+  // Every filterable thing carries data-name: a board row in a tier table, and
+  // a player inside a positional tier paragraph.
+  var items = Array.prototype.slice.call(document.querySelectorAll('[data-name]'));
+  var total = items.filter(function (el) { return el.tagName === 'TR'; }).length;
+
+  function apply() {
+    var wanted = posButtons.filter(function (b) {
+      return b.classList.contains('on');
+    }).map(function (b) { return b.getAttribute('data-pos'); });
+    var t = team.value;
+    var b = bye.value;
+    var rookiesOnly = rookie.checked;
+    var text = name.value.trim().toLowerCase();
+    var shown = 0;
+
+    items.forEach(function (el) {
+      // No position selected means no position filter, not an empty board.
+      var ok = (wanted.length === 0
+                || wanted.indexOf(el.getAttribute('data-pos')) > -1)
+        && (t === '' || el.getAttribute('data-team') === t)
+        && (b === '' || el.getAttribute('data-bye') === b)
+        && (!rookiesOnly || el.getAttribute('data-rookie') === '1')
+        && (text === '' || el.getAttribute('data-name').indexOf(text) > -1);
+      el.hidden = !ok;
+      if (ok && el.tagName === 'TR') { shown++; }
+    });
+
+    // Roll the hiding up, so a tier with nothing left does not leave a bare
+    // heading and an empty table behind.
+    document.querySelectorAll('p.postier').forEach(function (p) {
+      p.hidden = !p.querySelector('span.p:not([hidden])');
+    });
+    document.querySelectorAll('section').forEach(function (s) {
+      s.hidden = !s.querySelector(
+        'tr[data-name]:not([hidden]), p.postier:not([hidden])');
+    });
+
+    count.textContent = shown + ' of ' + total + ' players';
+  }
+
+  posButtons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.classList.toggle('on');
+      apply();
+    });
+  });
+  [name, team, bye, rookie].forEach(function (el) {
+    el.addEventListener('input', apply);
+  });
+  clear.addEventListener('click', function () {
+    name.value = '';
+    team.value = '';
+    bye.value = '';
+    rookie.checked = false;
+    posButtons.forEach(function (b) { b.classList.remove('on'); });
+    apply();
+  });
+  apply();
+})();
+</script>
+"""
+
+
+def filter_attrs(row: dict) -> str:
+    """The data attributes the filter bar reads off one player."""
+    return (
+        f' data-pos="{row["pos"]}"'
+        f' data-team="{row["team"]}"'
+        f' data-rookie="{1 if row["draft_round"] is not None else 0}"'
+        f' data-bye="{row["bye"] or ""}"'
+        f' data-name="{str(row["player"]).lower()}"'
+    )
+
+
 def write_cheatsheet(board: pl.DataFrame) -> None:
     rows = []
     for tier, group in board.group_by("tier", maintain_order=True):
-        rows.append(f'<h2>Tier {tier[0]}</h2><table>')
+        # The heading and the table are one unit so that filtering everything
+        # out of a tier hides the tier itself.
+        rows.append(f'<section><h2>Tier {tier[0]}</h2><table>')
         rows.append(
             "<tr><th>#</th><th>Player</th><th>Pos</th><th>Pos tier</th><th>Team</th>"
             "<th>Proj</th><th>VBD</th><th>Adj</th><th>Moved</th><th>Bye</th>"
@@ -842,7 +933,7 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
             else:
                 room = f"<b>{r['depth_slot']}</b> &mdash; no other big name"
             rows.append(
-                f"<tr><td>{i}</td><td>{r['player']}</td>"
+                f"<tr{filter_attrs(r)}><td>{i}</td><td>{r['player']}</td>"
                 f"<td>{r['pos']}{r['pos_slot']}</td>"
                 f"<td>{r['pos']} T{r['pos_tier']}</td>"
                 f"<td>{r['team']}</td><td>{r['points']:.0f}</td>"
@@ -851,28 +942,51 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
                 f"<td>{r['bye'] or ''}</td><td>{'; '.join(notes)}</td>"
                 f"<td>{room}</td></tr>"
             )
-        rows.append("</table>")
+        rows.append("</table></section>")
 
     rows.append("<h1>By position</h1><p>Inside one positional tier the order is "
                 "close to a coin flip. Take the bye week or the safer role.</p>")
     for group in board.partition_by("pos", maintain_order=True):
         pos = group["pos"][0]
-        rows.append(f"<h2>{pos}</h2>")
+        rows.append(f"<section><h2>{pos}</h2>")
         for tier_group in group.sort("vbd", descending=True).partition_by(
             "pos_tier", maintain_order=True
         ):
-            names = ", ".join(
-                f"{r['player']} ({r['team']}, bye {r['bye'] or '?'})"
+            # One span per player rather than one string per tier, so the filter
+            # can drop a single name out of a tier instead of all or nothing.
+            names = "".join(
+                f"<span class=p{filter_attrs(r)}>"
+                f"{r['player']} ({r['team']}, bye {r['bye'] or '?'})</span>"
                 for r in tier_group.iter_rows(named=True)
             )
             lo = tier_group["vbd"].min()
             hi = tier_group["vbd"].max()
             rows.append(
                 f"<p class=postier><b>{pos} tier {tier_group['pos_tier'][0]}</b> "
-                f"<span class=vbd>vbd {hi:.0f} to {lo:.0f}</span><br>{names}</p>"
+                f"<span class=vbd>vbd {hi:.0f} to {lo:.0f}</span>"
+                f"<span class=names>{names}</span></p>"
             )
+        rows.append("</section>")
 
     snapshot = board["depth_dt"].drop_nulls().max() or "unknown"
+
+    # The filter bar offers only values the board actually contains, so it can
+    # never present a choice that empties the page.
+    pos_buttons = "".join(
+        f'<button type=button class=f-pos data-pos="{p}">{p}</button>'
+        for p in ("QB", "RB", "WR", "TE")
+        if board.filter(pl.col("pos") == p).height
+    )
+    team_options = "".join(
+        f'<option value="{t}">{t}</option>'
+        for t in sorted(board["team"].drop_nulls().unique().to_list())
+    )
+    bye_options = "".join(
+        f'<option value="{b}">{b}</option>'
+        for b in sorted(int(v) for v in board["bye"].drop_nulls().unique().to_list())
+    )
+    rookies = board.filter(pl.col("draft_round").is_not_null()).height
+
     html = f"""<!doctype html>
 <meta charset="utf-8"><title>Draft cheat sheet</title>
 <style>
@@ -890,6 +1004,20 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
               border-left: 3px solid #ccc; }}
  span.vbd {{ color: #777; font-size: 12px; }}
  p.legend {{ color: #555; font-size: 12px; max-width: 52rem; }}
+ [hidden] {{ display: none !important; }}
+ span.names {{ display: flex; flex-wrap: wrap; gap: .1rem 1rem;
+               margin-top: .2rem; }}
+ div.filters {{ position: sticky; top: 0; z-index: 5; background: #fff;
+                display: flex; flex-wrap: wrap; align-items: center;
+                gap: .4rem .7rem; padding: .6rem 0;
+                border-bottom: 2px solid #333; margin-bottom: .5rem; }}
+ div.filters select, div.filters input[type=search] {{ font: inherit;
+                padding: .2rem .3rem; }}
+ button.f-pos {{ font: inherit; padding: .2rem .6rem; cursor: pointer;
+                 border: 1px solid #bbb; background: #fff; border-radius: 3px; }}
+ button.f-pos.on {{ background: #333; color: #fff; border-color: #333; }}
+ #f-count {{ color: #777; font-size: 12px; margin-left: auto; }}
+ @media print {{ div.filters {{ display: none; }} }}
 </style>
 <h1>Draft cheat sheet</h1>
 <p>{league.TEAMS} teams, half PPR, two W/R/T flex. Draft {league.DRAFT_TIME}.
@@ -907,7 +1035,17 @@ another team last year. This column is <b>information, not a ranking input</b>:
 target competition was measured and rejected as a signal (D-009), so nothing
 here moved anybody. Preseason charts are provisional &mdash; re-run after the
 final roster cuts (Q-010).</p>
+<div class=filters>
+ <input id=f-name type=search placeholder="player name" size=14>
+ {pos_buttons}
+ <select id=f-team><option value="">all teams</option>{team_options}</select>
+ <select id=f-bye><option value="">all byes</option>{bye_options}</select>
+ <label><input id=f-rookie type=checkbox> rookies only ({rookies})</label>
+ <button type=button id=f-clear>clear</button>
+ <span id=f-count></span>
+</div>
 {''.join(rows)}
+{FILTER_SCRIPT}
 """
     path = OUT / "cheatsheet.html"
     path.write_text(html, encoding="utf-8")
