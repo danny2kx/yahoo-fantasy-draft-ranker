@@ -56,7 +56,15 @@ rankings, so the snake draft runs itself without the owner attending.
   `league/nfl.l.<id>/settings`. The failure is identical on the trivial game
   endpoint, which rules out a bad league id or a wrong account: enforcement is
   at the app-permission level. Approval is the only route to the API.
-- `[VERIFIED: user-stated, this session]` The league is a **snake** draft.
+- `[VERIFIED: owner transcription of the league Settings page, 2026-08-15]`
+  League configuration is recorded in `league.py` and verified to parse.
+  **12 teams, head-to-head, half PPR** (0.5 per reception), fractional and
+  negative points both enabled. Starters per team: QB 1, RB 2, WR 2, TE 1,
+  **W/R/T flex 2**, K 1, DEF 1, so 10 starters, 5 bench, 1 IR, and 180 players
+  rostered leaguewide. Draft is a **live snake** on **2026-09-05 16:00 CDT**.
+  Departures from Yahoo defaults that move whole position groups: passing TD 5
+  (default 4), interception -2 (default -1), every missed FG -1 (default 0),
+  missed PAT -1 (default 0), DST sack 1.5 (default 1).
 - `[VERIFIED: git ls-files + full-history grep, 2026-08-15]` Repository is safe
   to publish: `.env` was never committed, only `.env.example` with empty secret
   fields; no secret-shaped strings and no personal data anywhere in history.
@@ -72,29 +80,22 @@ rankings, so the snake draft runs itself without the owner attending.
 
 ## Blocked
 
-Nothing is blocked on Yahoo any more. The API path is gated behind an approval
-queue with no published turnaround, but the API was only ever a convenience for
-reading four settings values that are visible on the league's own settings page.
-The deliverable (D-002) is entered into Yahoo's pre-rank page by hand regardless,
-because write access does not exist. So the draft work proceeds on
-owner-transcribed settings, and the API becomes a later convenience if approved.
-
-Only remaining input: the owner has not yet supplied the four settings values.
+Nothing. The Yahoo API remains gated behind an approval queue, but it was only
+ever a convenience for reading settings that are visible on the league's own
+settings page, and the deliverable (D-002) is entered into Yahoo's pre-rank page
+by hand regardless because write access does not exist. Settings are now
+transcribed (see `league.py`), so every downstream step can run.
 
 ## Next actions
 
-1. `[Haiku -- mechanical: transcribe from a web page]` Owner reads the league's
-   Settings page and reports: scoring type (standard / half PPR / full PPR, or
-   the custom stat modifier table), the full roster slot list with counts,
-   number of teams, and draft date and time. Record verbatim in this file.
-2. `[Sonnet -- pattern build against a specified method]` Build the
+1. `[Sonnet -- pattern build against a specified method]` Build the
    rank-to-points curve: compute 2023-2025 season fantasy points per player
    under the league's actual scoring, rank within position per season, average
    across seasons.
-3. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
+2. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
    assign tiers from gaps in the VBD curve, emit a name-ordered list for
    Yahoo's pre-draft ranking page plus a tiered HTML cheat sheet.
-4. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
+3. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
    application, put the credentials in `.env`, run `yahoo_auth.py`, then
    `probe_league.py`. Fix its JSON traversal against the real response and
    check the observed settings against the transcribed ones.
@@ -102,18 +103,15 @@ Only remaining input: the owner has not yet supplied the four settings values.
 ## Open questions
 
 ```
-Q-001: What is the league's scoring type and roster composition?
-Blocker: none. Owner transcribes it from the league Settings page.
-Resolution: the scoring type and roster slot counts recorded in this file.
-  Until then VBD cannot be computed correctly, because the replacement
-  level depends on league size times starters per position.
+Q-001: ANSWERED 2026-08-15. 12 teams, head-to-head, half PPR (0.5 per
+  reception). Starters QB 1, RB 2, WR 2, TE 1, W/R/T 2, K 1, DEF 1; bench
+  5; IR 1. Full scoring table in league.py.
 ```
 
 ```
-Q-002: When is the draft?
-Blocker: none. Same source as Q-001.
-Resolution: the draft date recorded in this file. Decides whether there is
-  time for the tiered cheat sheet or only the bare ranked list.
+Q-002: ANSWERED 2026-08-15. Live snake draft, 2026-09-05 16:00 CDT, with
+  a 1:15 pick clock. That is 21 days out, so there is time for the tiered
+  cheat sheet as well as the bare ranked list.
 ```
 
 ```
@@ -122,6 +120,14 @@ Q-003: ANSWERED 2026-08-15. Read only. sports.yahoo.com/developer/access/
   and "Write access is not available at this time." Read/Write can be
   requested in the application notes but is not offered as a scope. This
   rules out later in-season lineup automation through the API.
+```
+
+```
+Q-005: How should the two W/R/T flex slots be allocated when setting the
+  VBD replacement level? 24 leaguewide flex slots split among RB, WR and TE
+  changes every positional replacement rank, and therefore the whole board.
+Blocker: a method choice, not missing data.
+Resolution: owner picks the allocation rule.
 ```
 
 ```
