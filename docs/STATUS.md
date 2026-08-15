@@ -36,7 +36,11 @@ rankings, so the snake draft runs itself without the owner attending.
   kicker or defence at 152. `out/yahoo_prerank.txt` is 216 names, all unique, no
   blanks. **The prescribed fix in the session-2 handoff (QB rank 18) was wrong
   in direction and was not applied** — see D-005's rejected alternatives and
-  L-007.
+  L-007. **D-006** then closed the follow-up question of pushing quarterbacks
+  further down: the owner confirmed set-and-forget, so the streaming baseline
+  (free QB = QB9 or QB10, first QB at line 33 or 27) and a hard line-number
+  floor were both rejected. The mechanism for the streaming baseline is a
+  one-constant change if his habits ever change.
 - `[VERIFIED: build_rankings.py output, this session]` The bounded signals move
   players as designed. Largest upgrades: Justin Jefferson +8 (top-3 target
   share, 2 TDs on 8.6 expected), CeeDee Lamb +7, Drake Maye +7. Largest

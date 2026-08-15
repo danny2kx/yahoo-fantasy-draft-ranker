@@ -221,3 +221,50 @@ rejected alternatives were produced by scratch probes over a cached copy of the
 same projection frame, so only the baseline differed between them.
 
 References: D-001, D-004, L-007.
+
+---
+
+## D-006 — Quarterbacks are not pushed further down the board, because streaming is weekly work this owner has said he will not do
+
+Status: Decided (2026-08-15)
+
+Decision: Keep the quarterback replacement level at QB12, the last starting
+slot, as set by D-005. Do not lower it further and do not add a rule forbidding
+quarterbacks before a given line of the pre-rank list. The first quarterback
+stays at line 19 of `out/yahoo_prerank.txt`.
+
+Why: Every argument for demoting quarterbacks past this point is an argument
+about streaming — replacing the quarterback most weeks to play the favourable
+matchup. A 12-team league rosters 12 of the 32 starting quarterbacks, so about
+20 sit on waivers, and an owner who works the wire really does beat QB12. But
+D-002 records that this project exists because the owner has no time to manage
+the team and intends not to attend the draft. Streaming costs time every week.
+Setting the baseline on the strength of an activity the owner has stated he will
+not perform would price the board for a different manager. Asked directly this
+session, the owner confirmed set-and-forget.
+
+Tradeoff: If the owner does start working the waiver wire mid-season, the board
+will have paid a slightly early pick for a quarterback whose edge over a free
+one is smaller than the board assumed. The exposure is one pick and roughly two
+points a week, so it does not justify hedging in advance.
+
+Alternative rejected: Lower the assumed value of a free quarterback to QB10 or
+QB9, which moves the first quarterback from line 19 to 27 or 33 and shifts every
+quarterback down together. Rejected on the streaming argument above, not on the
+mechanism, which works and is a one-constant change if the owner's habits ever
+change. Also rejected: a hard floor forbidding any quarterback before line N.
+Rejected as blunt and unprincipled — it moves only the first quarterback and
+leaves the rest bunched, and it has no reasoning behind the chosen N, whereas
+the baseline expresses a claim that can be argued with.
+
+Evidence: Scratch probes over the settled projection frame, varying only the
+quarterback baseline: free = QB12 puts quarterbacks at lines 19, 40, 47, 59, 74;
+QB10 at 27, 54, 59, 72, 87; QB9 at 33, 63, 69, 79, 93; QB6 at 53, 82, 87, 99.
+The cost of skipping the quarterback at line 19 for the next player on the board
+is 2.3 points across a season, and every other quarterback on the board sits
+within 0.3 points of the player directly below him, which is why a floor buys
+almost nothing. The position is also risk-free in one direction: 32 teams start
+a quarterback and 12 are rostered, so pushing them later can cost quality but
+can never leave the roster without one.
+
+References: D-002, D-005.
