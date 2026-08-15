@@ -111,3 +111,57 @@ available at this time". Both retrieved 2026-08-15. The app-creation form offers
 only OpenID Connect and TW Auction, user-observed the same day.
 
 References: D-001, D-002, L-003.
+
+---
+
+## D-004 — Opportunity signals adjust the consensus by a capped number of ranks, and the flex slots are allocated by projected points
+
+Status: Decided (2026-08-15)
+
+Decision: Keep expert consensus rank as the base order within each position, per
+D-001, then move each player by a signal capped at plus or minus 8 ranks. Five
+weighted inputs feed the signal: usage share (0.35), touchdown regression
+(0.25), the 2026 team's passing efficiency (0.15), draft capital (0.15), and
+reception dependence (0.10). Usage share, touchdown regression and reception
+dependence apply only when the player is on the same team in 2026 as in 2025.
+Touchdown regression is inverted: scoring far above expected moves a player
+down, not up. For value-based drafting, fill the base roster slots first, then
+allocate the 24 W/R/T flex slots to whichever remaining running backs,
+receivers and tight ends project highest, so the flex split falls out of this
+league's scoring rather than out of an assumed ratio.
+
+Why: The owner asked for usage share, quarterback quality and draft capital to
+influence the board. D-001 permits opportunity metrics only as a tiebreaker,
+because between seasons players change teams and rookies are drafted on top of
+incumbents. The cap is the reconciliation: it lets a genuinely mispriced player
+move, while keeping the consensus as the anchor so this cannot become the
+standalone extrapolation D-001 rejected. Touchdown regression is inverted
+because touchdowns are the least repeatable component of fantasy scoring, and a
+naive reading of the owner's stated criterion would have ranked the most
+regression-prone players highest.
+
+Tradeoff: The cap is a judgement, not a derived quantity, and it limits the
+model on a player the consensus has badly wrong. Weights are assigned rather
+than fitted, because there is no held-out season to fit them against without
+building a backtest this project does not need. Separately, replacement level is
+computed at the last starting slot, which is standard VBD but overvalues
+quarterbacks: a one-QB league lets any owner stream a replacement off waivers,
+so QB12 is not the real floor. The observed result put four quarterbacks in the
+top 24 with the QB1 seventh overall. The fix, deferred to next session, is a
+deeper QB replacement rank.
+
+Alternative rejected: allocating the flex slots by a fixed ratio taken from how
+flex is historically filled in 12-team leagues. Rejected because this league's
+scoring is not standard, so a ratio observed in standard leagues would bake in
+an assumption the projected points can resolve directly. Also rejected:
+weighting the opportunity signals without a cap, which is the pure historical
+extrapolation D-001 already refused.
+
+Evidence: `build_rankings.py` run this session produced 15 players moved 4 or
+more ranks against a cap of 8. Justin Jefferson +8 (third-highest 2025 target
+share, 2 touchdowns against 8.55 expected), Jahmyr Gibbs -5 (18 touchdowns
+against 10.68 expected). Replacement levels QB 296.6, RB 135.9, WR 134.8,
+TE 120.8. Half-PPR point calculation verified against 2025 season totals in
+`scoring.py`.
+
+References: D-001, D-002, L-005, L-006.

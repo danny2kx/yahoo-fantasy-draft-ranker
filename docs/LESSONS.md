@@ -117,3 +117,62 @@ id and the signed-in account in a single call and pointed straight at the app
 permission, which was the one thing not visible from any code path.
 
 References: L-003, D-003.
+
+---
+
+## L-005 — A populated ID column is not evidence it joins to another table's column of the same name
+
+When: Joining two tables that come from the same data package or vendor, where
+both carry an identifier with the same name and neither is documented as the
+canonical key.
+
+Do: Measure the join rate before building anything on top of it. Count matched
+rows against expected rows and fail loudly at zero. When the rate is zero or
+implausibly low, look for the same fact carried on a table that already shares a
+key with your left-hand side, rather than debugging the key you started with.
+Treat a populated column as evidence the column exists, never as evidence it
+refers to the same namespace as its namesake elsewhere.
+
+Root cause: Within one package the same identifier name can be sourced from
+different upstream feeds that populate it at different times. A player drafted
+but not yet on a roster can hold a provisional id in one table and the real one
+in another. Nothing is null, nothing errors, and a left join simply yields
+nulls in the new columns, which reads as "this player has no data" rather than
+"these two tables do not share a namespace".
+
+Evidence: `nflreadpy.load_draft_picks(2026)` carries `gsis_id` populated for 73
+of 80 skill picks, and `load_ff_playerids()` carries `gsis_id` too. Joining them
+matched 0 of 73. The rookie draft-capital signal silently scored zero for every
+player, and the first pipeline run reported "0 rookies on the board" while
+looking otherwise healthy. The same facts live on `load_ff_playerids` as
+`draft_year` / `draft_round` / `draft_ovr`, keyed on the FantasyPros id already
+in use, which matched immediately.
+
+---
+
+## L-006 — Two columns both called a "rank" are only comparable if they cover the same population
+
+When: Combining, differencing or averaging two ranking columns from the same
+source, especially when a short type code rather than a descriptive name
+distinguishes them.
+
+Do: Before treating two rankings as the same scale, print the row count, the
+distinct positions, and the source identifier for each slice. Two rankings are
+comparable only when both cover the same set of entities. When a source exposes
+both a terse type code and a descriptive one, trust the descriptive one: the
+terse code often groups slices that a human would never combine.
+
+Root cause: A rank is a position within a population, so it carries no meaning
+outside that population. Rank 12 among kickers and rank 12 among all players are
+different quantities wearing the same label, and arithmetic across them produces
+numbers that are well-formed and meaningless. Nothing in the type system objects,
+because both columns are just integers.
+
+Evidence: `load_ff_rankings()` exposes `ecr_type` codes (`ro`, `rp`) alongside a
+descriptive `page_type`. Averaging the `ro` and `rp` slices to synthesise a
+half-PPR rank produced kickers ranked 226th in one and 12th in the other, and
+duplicated players whose names appeared in both. Grouping by `page_type` instead
+showed the slices are separate populations, that the `ro` set includes defensive
+players, and that the only whole-league redraft ranking available comes from a
+single PPR page. The intended interpolation was not possible at all, which the
+descriptive grouping revealed in one query.
