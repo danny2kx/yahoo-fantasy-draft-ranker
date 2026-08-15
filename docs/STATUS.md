@@ -87,14 +87,14 @@ Only remaining input: the owner has not yet supplied the four settings values.
    Settings page and reports: scoring type (standard / half PPR / full PPR, or
    the custom stat modifier table), the full roster slot list with counts,
    number of teams, and draft date and time. Record verbatim in this file.
-3. `[Sonnet -- pattern build against a specified method]` Build the
+2. `[Sonnet -- pattern build against a specified method]` Build the
    rank-to-points curve: compute 2023-2025 season fantasy points per player
    under the league's actual scoring, rank within position per season, average
    across seasons.
-4. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
+3. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
    assign tiers from gaps in the VBD curve, emit a name-ordered list for
    Yahoo's pre-draft ranking page plus a tiered HTML cheat sheet.
-5. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
+4. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
    application, put the credentials in `.env`, run `yahoo_auth.py`, then
    `probe_league.py`. Fix its JSON traversal against the real response and
    check the observed settings against the transcribed ones.
@@ -127,6 +127,6 @@ Q-003: ANSWERED 2026-08-15. Read only. sports.yahoo.com/developer/access/
 ```
 Q-004: ANSWERED 2026-08-15. Yes, public GitHub. Decided because the Yahoo
   access application requires a valid URL describing the product, and the
-  repository was verified clean of secrets and personal data. Execution
-  pending: see next action 1.
+  repository was verified clean of secrets and personal data. Done:
+  github.com/danny2kx/yahoo-fantasy-draft-ranker, master in sync.
 ```
