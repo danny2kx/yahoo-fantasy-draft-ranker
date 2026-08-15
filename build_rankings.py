@@ -375,19 +375,16 @@ def replacement_levels(df: pl.DataFrame) -> dict[str, float]:
     return levels_for(depths)
 
 
-def assign_tiers(df: pl.DataFrame) -> pl.DataFrame:
-    """Break the value curve where it steps down hardest.
+def tier_breaks(values: list[float]) -> list[int]:
+    """Tier numbers for a descending list of values, cut where it steps down.
 
-    A tier is the set of players who are close enough in value that taking any
-    of them is roughly the same decision. The breaks are the gaps that are large
-    relative to the typical gap, which is what makes a cheat sheet useful during
-    a live draft.
+    A tier is the set of players close enough in value that taking any of them
+    is roughly the same decision. The breaks are the gaps that are large
+    relative to the typical gap in that same list.
     """
-    ordered = df.sort("vbd", descending=True)
-    values = ordered["vbd"].to_list()
     gaps = [values[i] - values[i + 1] for i in range(len(values) - 1)]
     if not gaps:
-        return ordered.with_columns(tier=pl.lit(1))
+        return [1] * len(values)
 
     positive = sorted(g for g in gaps if g > 0)
     threshold = positive[int(len(positive) * 0.88)] if positive else math.inf
@@ -397,7 +394,33 @@ def assign_tiers(df: pl.DataFrame) -> pl.DataFrame:
         tiers.append(current)
         if i < len(gaps) and gaps[i] >= threshold:
             current += 1
-    return ordered.with_columns(tier=pl.Series("tier", tiers))
+    return tiers
+
+
+def assign_tiers(df: pl.DataFrame) -> pl.DataFrame:
+    """Tier the board twice: across every position, and within each one.
+
+    The overall tier answers "who else is this pick worth about the same as",
+    which is what matters when any position is still open. The positional tier
+    answers "which of these running backs are interchangeable", which is what
+    matters once a slot is the thing being filled, and the overall board cannot
+    show it because it interleaves positions.
+    """
+    ordered = df.sort("vbd", descending=True)
+    ordered = ordered.with_columns(
+        tier=pl.Series("tier", tier_breaks(ordered["vbd"].to_list()))
+    )
+
+    parts = []
+    for group in ordered.partition_by("pos", maintain_order=True):
+        group = group.sort("vbd", descending=True)
+        parts.append(
+            group.with_columns(
+                pos_tier=pl.Series("pos_tier", tier_breaks(group["vbd"].to_list())),
+                pos_slot=pl.int_range(1, group.height + 1, eager=True),
+            )
+        )
+    return pl.concat(parts).sort("vbd", descending=True)
 
 
 def main() -> None:
@@ -444,7 +467,7 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
     for tier, group in board.group_by("tier", maintain_order=True):
         rows.append(f'<h2>Tier {tier[0]}</h2><table>')
         rows.append(
-            "<tr><th>#</th><th>Player</th><th>Pos</th><th>Team</th>"
+            "<tr><th>#</th><th>Player</th><th>Pos</th><th>Pos tier</th><th>Team</th>"
             "<th>Proj</th><th>VBD</th><th>Shift</th><th>Bye</th><th>Notes</th></tr>"
         )
         for i, r in enumerate(group.iter_rows(named=True), 1):
@@ -458,12 +481,33 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
             if r["signal_team"] is None:
                 notes.append("no 2025 usage data")
             rows.append(
-                f"<tr><td>{i}</td><td>{r['player']}</td><td>{r['pos']}</td>"
+                f"<tr><td>{i}</td><td>{r['player']}</td>"
+                f"<td>{r['pos']}{r['pos_slot']}</td>"
+                f"<td>{r['pos']} T{r['pos_tier']}</td>"
                 f"<td>{r['team']}</td><td>{r['points']:.0f}</td>"
                 f"<td>{r['vbd']:.0f}</td><td>{r['rank_shift']:+.0f}</td>"
                 f"<td>{r['bye'] or ''}</td><td>{'; '.join(notes)}</td></tr>"
             )
         rows.append("</table>")
+
+    rows.append("<h1>By position</h1><p>Inside one positional tier the order is "
+                "close to a coin flip. Take the bye week or the safer role.</p>")
+    for group in board.partition_by("pos", maintain_order=True):
+        pos = group["pos"][0]
+        rows.append(f"<h2>{pos}</h2>")
+        for tier_group in group.sort("vbd", descending=True).partition_by(
+            "pos_tier", maintain_order=True
+        ):
+            names = ", ".join(
+                f"{r['player']} ({r['team']}, bye {r['bye'] or '?'})"
+                for r in tier_group.iter_rows(named=True)
+            )
+            lo = tier_group["vbd"].min()
+            hi = tier_group["vbd"].max()
+            rows.append(
+                f"<p class=postier><b>{pos} tier {tier_group['pos_tier'][0]}</b> "
+                f"<span class=vbd>vbd {hi:.0f} to {lo:.0f}</span><br>{names}</p>"
+            )
 
     html = f"""<!doctype html>
 <meta charset="utf-8"><title>Draft cheat sheet</title>
@@ -474,7 +518,10 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
  table {{ border-collapse: collapse; width: 100%; }}
  th, td {{ text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #ddd; }}
  th {{ background: #f4f4f4; }}
- td:nth-child(9) {{ color: #a33; font-size: 12px; }}
+ td:nth-child(10) {{ color: #a33; font-size: 12px; }}
+ p.postier {{ margin: .4rem 0 .8rem; padding-left: .6rem;
+              border-left: 3px solid #ccc; }}
+ span.vbd {{ color: #777; font-size: 12px; }}
 </style>
 <h1>Draft cheat sheet</h1>
 <p>{league.TEAMS} teams, half PPR, two W/R/T flex. Draft {league.DRAFT_TIME}.
@@ -504,6 +551,16 @@ def report(board: pl.DataFrame) -> None:
         print(f"{label} ({group.height}):")
         for r in group.head(8).iter_rows(named=True):
             print(f"  {str(r['player'])[:24]:<26}{r['pos']:<5}{r['rank_shift']:>+4.0f}")
+
+    print("\nTop of each position, with the tier break marked:")
+    for group in board.partition_by("pos", maintain_order=True):
+        pos = group["pos"][0]
+        print(f"  {pos}")
+        rows = list(group.sort("vbd", descending=True).head(12).iter_rows(named=True))
+        for r in rows:
+            print(f"    T{r['pos_tier']} {pos}{r['pos_slot']:<3}"
+                  f"{str(r['player'])[:22]:<24}{str(r['team']):<5}"
+                  f"vbd {r['vbd']:>6.1f}   board {r['tier']:>2}")
 
     rookies = board.filter(pl.col("draft_round").is_not_null())
     print(f"\n{rookies.height} rookies on the board -- these need manual RSP review:")

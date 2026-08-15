@@ -137,6 +137,25 @@ Q-005: ANSWERED 2026-08-15 (session 3). Neither. The question assumed the
 ```
 
 ```
+Q-007: D-004 caps a signal at 8 ranks, but a rank is worth wildly
+  different amounts of value depending on where it lands on the points
+  curve, so the cap does not bound what a signal can do.
+Blocker: fixing it reopens D-004's method. Capping in points instead of
+  ranks, or applying the shift after the curve lookup, are both real
+  options and neither has been costed.
+Evidence: Ja'Marr Chase is consensus WR1 (ECR 2) and lands WR3, 7th on the
+  board. Justin Jefferson (+8) and CeeDee Lamb (+7) jumped him, almost
+  entirely on touchdown regression: they scored 6.55 and 4.79 fewer
+  touchdowns than expected in 2025. Those shifts moved Lamb from WR rank 5
+  to 1 and Jefferson from 6 to 2, which the curve converts into 328.6 and
+  294.4 points against Chase's 265.5 -- a 63-point spread, and three
+  separate WR tiers. The same 8-rank cap applied at WR40 moves about 20
+  points. The cap is uniform in ranks and very far from uniform in value.
+Resolution: not started. Owner has not been asked whether the current
+  behaviour is wrong or merely surprising.
+```
+
+```
 Q-006: Are the four round-1 rookies ranked correctly?
 Blocker: the model has draft capital and landing spot but no talent
   evaluation, and the consensus disagrees most on exactly these players
