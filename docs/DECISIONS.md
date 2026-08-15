@@ -69,3 +69,45 @@ https://help.yahoo.com/kb/pre-rank-players-prepare-autopick-drafts-sln6163.html,
 retrieved this session. Snake draft format is user-stated.
 
 References: D-001.
+
+---
+
+## D-003 — League settings are transcribed by the owner, not read from the Yahoo API
+
+Status: Decided (2026-08-15)
+
+Decision: Take the four values the projection method needs — scoring type,
+roster slot counts, number of teams, draft date — from the league's own Settings
+page, transcribed by the owner into `docs/STATUS.md`. Do not wait for Yahoo API
+access. Keep `probe_league.py` and run it later as a cross-check if the access
+application is approved.
+
+Why: The Yahoo Fantasy Sports API is no longer self-serve. Access is gated
+behind an application reviewed by a human at Yahoo, with no published turnaround
+time, and the API is read-only. Under D-002 the deliverable is entered into
+Yahoo's pre-rank page by hand anyway, so the API's entire role in this project
+was reading four values that are already visible on screen. Blocking the whole
+project on a review queue to avoid two minutes of typing is a bad trade.
+
+Tradeoff: Transcription can be wrong, and nothing catches it. An API read is
+exact and re-runnable. A custom stat-modifier table is more error-prone to copy
+than a named preset like "full PPR", and a wrong point-per-reception value
+shifts every receiver in the rankings. Mitigation: record the settings verbatim
+rather than as an interpretation, and re-check against `probe_league.py` output
+if access is ever granted.
+
+Alternative rejected: Wait for the Yahoo access application, then run
+`probe_league.py`. Rejected because the draft date is likely inside the review
+window and no turnaround time is published, so this risks the entire deliverable
+to gain exactness on four values. Also rejected: scraping the league settings
+page with the owner's session cookie, which is more work than reading the page
+and violates the terms the access application is governed by.
+
+Evidence: `developer.yahoo.com/fantasysports/guide/` returns a 308 redirect to
+`sports.yahoo.com/developer`, which describes an apply-review-approve flow with
+no self-serve option. `sports.yahoo.com/developer/access/` states "Access to the
+Yahoo Fantasy Sports API is read-only by default" and "Write access is not
+available at this time". Both retrieved 2026-08-15. The app-creation form offers
+only OpenID Connect and TW Auction, user-observed the same day.
+
+References: D-001, D-002, L-003.
