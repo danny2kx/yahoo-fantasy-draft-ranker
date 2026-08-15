@@ -142,7 +142,29 @@ regardless because write access does not exist.
 
 ## Next actions
 
-1. `[Sonnet — a defect found while building, deliberately not fixed]`
+1. `[Sonnet — pattern build, every source already in hand]` **Add an offence
+   depth-chart column to the cheat sheet: who else eats in this player's
+   offence.** Owner-requested this session. For each skill player on the board,
+   list the teammates competing for the same touches, each with his name, his
+   consensus rank (quality), his draft capital if he is a recent high pick, and
+   his 2025 share%.
+   - Sources, all confirmed present this session:
+     `nfl.load_depth_charts(seasons=[2026])` returns 436,361 rows keyed on
+     `gsis_id`, which the board already carries as `player_id`; columns include
+     `team`, `player_name`, `pos_abb`, `pos_rank`, `pos_slot`, `dt`. It is a
+     series of dated snapshots — take the LATEST `dt` per team and position, not
+     every row. Share% is `carry_share` / `target_share`, already computed in
+     `opportunity_signals()`. Quality is `ecr` from the anchor. Draft capital is
+     `draft_round` / `draft_pick`, already joined as `rookie`.
+   - Default for "big name", owner can retune: a teammate at the same position
+     who is inside the export's top 150, OR was drafted in round 1 or 2, OR held
+     a 2025 share of 10% or more.
+   - **This is a DISPLAY column, not a signal.** D-009 rejected a receiver
+     target-competition TERM on measurement (-0.027 after target share). Do not
+     add it to `SIGNAL_WEIGHTS`. Turning it into a weighted term would need a
+     new D-NNN overturning D-009 on new evidence of a different kind.
+   - Do action 2 first: it changes every share% this column would display.
+2. `[Sonnet — a defect found while building, deliberately not fixed]`
    **`opportunity_signals()` does not filter to the regular season.**
    `scoring.season_totals` filters `season_type == "REG"` and the new
    `snap_shares()` filters `game_type == "REG"`, but the usage aggregation does
@@ -151,24 +173,41 @@ regardless because write access does not exist.
    and is inflated for players on deep playoff teams. Left alone this session
    because it moves every share at once and would have muddied D-010's
    before-and-after read. Fix it and re-read the board.
-2. `[Sonnet — judgment against an external source]` Review the round-1 rookies
+3. `[Sonnet — judgment against an external source]` Review the round-1 rookies
    against Matt Waldman's Rookie Scouting Portfolio ($21.95, **not purchased**)
    and move them by hand. 12 rookies now reach the board; Jeremiyah Love at 18
    is the only one high enough to cost a real pick.
-3. `[Owner — manual: transcribe a list into a web form]` Enter
+4. `[Owner — manual: transcribe a list into a web form]` Enter
    `out/yahoo_prerank.txt` into Yahoo's pre-draft rankings page before
    2026-09-05 16:00 CDT. Do not re-sort the kickers and defences upward.
-4. `[Sonnet — cheap, data already in hand]` Wire `SOS SEASON` and
+5. `[Sonnet — cheap, data already in hand]` Wire `SOS SEASON` and
    `ECR VS. ADP` from the D-008 export. Both are parsed and discarded today.
    `ECR VS. ADP` removes the `[INFERRED]` caveat on the slot-4 draft
    simulation, which used consensus rank as an ADP stand-in. **Confirm the sign
    convention before using it.**
-5. `[Sonnet — a stated blind spot with a source]` `nfl.load_injuries()` exists
+6. `[Sonnet — a stated blind spot with a source]` `nfl.load_injuries()` exists
    and is unexplored. The model holds no injury data, which is the live caveat
    on McCaffrey at board 5 and the reason D-010 weights age against season
    totals rather than per-game rates (L-010).
 
 ## Open questions
+
+```
+Q-010: Is a mid-August depth chart worth displaying at all, given the
+  draft is 2026-09-05?
+Blocker: `load_depth_charts(2026)` returns rows today, but preseason
+  depth charts are provisional — cuts, camp battles and the final
+  53-man roster all land in the last week of August. Whether the
+  ordering it shows on 2026-08-15 resembles week 1 cannot be checked
+  from inside this project.
+Evidence: the loader returns 436,361 rows for 2026 keyed on gsis_id,
+  verified this session. Nothing was checked about their stability.
+Resolution: build the column against the LATEST `dt` snapshot, then
+  re-run it once in the first week of September and diff the teammate
+  lists. If they move a lot, show the teammate's share% and consensus
+  rank only and drop the depth-chart slot number, which is the volatile
+  part. Not started.
+```
 
 ```
 Q-009: ANSWERED 2026-08-15 (session 5) by D-010. Two of the four criteria
