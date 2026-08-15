@@ -29,6 +29,22 @@ def current_game_key() -> str:
     return data["fantasy_content"]["game"][0]["game_key"]
 
 
+def my_leagues() -> list[dict]:
+    """Every NFL league on the authorized account.
+
+    Confirms the token belongs to the account that owns the target league,
+    rather than another account that also has fantasy teams.
+    """
+    data = api_get("users;use_login=1/games;game_keys=nfl/leagues")
+    users = data["fantasy_content"]["users"]["0"]["user"]
+    games = next(part for part in users if isinstance(part, dict) and "games" in part)
+    found = []
+    for game in _items(games["games"]):
+        for entry in _items(game["game"][1]["leagues"]):
+            found.append(entry["league"][0])
+    return found
+
+
 def league_settings(league_key: str) -> tuple[dict, dict]:
     data = api_get(f"league/{league_key}/settings")
     league = data["fantasy_content"]["league"]
@@ -36,9 +52,26 @@ def league_settings(league_key: str) -> tuple[dict, dict]:
 
 
 def main() -> None:
+    print("Leagues visible on the authorized account:")
+    visible = my_leagues()
+    for league in visible:
+        marker = "  <-- target" if str(league.get("league_id")) == LEAGUE_ID else ""
+        print(
+            f"  [{league.get('league_id')}] {league.get('name')} "
+            f"({league.get('num_teams')} teams, {league.get('scoring_type')})"
+            f"{marker}"
+        )
+
+    if not any(str(x.get("league_id")) == LEAGUE_ID for x in visible):
+        raise SystemExit(
+            f"\nLeague {LEAGUE_ID} is NOT on this account. The token belongs to a "
+            "different Yahoo user.\nDelete tokens/yahoo.json and re-authorize while "
+            "signed into the account that owns it."
+        )
+
     game_key = current_game_key()
     league_key = f"{game_key}.l.{LEAGUE_ID}"
-    print(f"League key: {league_key}\n")
+    print(f"\nLeague key: {league_key}\n")
 
     meta, settings = league_settings(league_key)
 
