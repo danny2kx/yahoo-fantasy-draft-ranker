@@ -2,7 +2,7 @@
 
 Snapshot of the latest session. Overwritten each handoff.
 
-**As of:** 2026-08-15 (Session 4)
+**As of:** 2026-08-15 (Session 5)
 
 ## Goal
 
@@ -11,6 +11,21 @@ rankings, so the snake draft runs itself without the owner attending.
 
 ## Current state
 
+- `[VERIFIED: build_rankings.py run + read back from out/yahoo_prerank.txt,
+  this session]` **Q-009 is closed by D-010 and Q-008 by the owner's answer,
+  half PPR.** The signal budget is now cut per position, each table summing to
+  one, which is also what removes the 15% running-back damping. Age is built
+  (RB 0.31, WR/TE 0.36) and snap share for running backs (0.15). Two of the four
+  criteria the session was briefed to build did NOT survive re-measurement and
+  were dropped: running back team-offence quality (every form measures -0.02 to
+  -0.05 added, the same result D-009 rejected red zone usage on) and air yards
+  share (+0.042 once target share is controlled for). `reception_dependence` is
+  gone, touchdown regression falls from 0.25 to 0.04/0.06, and carry share is
+  kept at 0.12 after re-measuring at +0.137 rather than the recorded -0.012.
+- `[VERIFIED: two panels run side by side, this session]` The divergence from
+  session 4's figures is explained by the outcome variable, not by the data:
+  session 4 measured next season's points PER GAME, this model predicts season
+  TOTALS. Recorded as **L-010**.
 - `[VERIFIED: build_rankings.py run + read back from out/yahoo_prerank.txt,
   this session]` **Q-007 is closed by D-007.** The combined signal now adjusts a
   player's projected POINTS, capped at plus or minus 24 (`MAX_POINT_SHIFT`), at
@@ -60,13 +75,15 @@ rankings, so the snake draft runs itself without the owner attending.
   `github.com/danny2kx/yahoo-fantasy-draft-ranker`. This URL was cited on the
   Yahoo access application, so it must keep resolving.
 
-## Research completed this session, not yet built
+## Research from session 4, now ruled on by D-010
 
-`[VERIFIED: scratch panels over nfl.load_pbp + load_player_stats 2019-2025,
-this session]` Six candidate criteria were tested predictively — season N's
-metric against season N+1's points, after removing what season N's points
-already explain. Method and its rationale are **L-008**. Rejections are
-**D-009**. Adoptions are **not decided** and are carried as Q-009.
+`[SUPERSEDED by the session 5 panel — the ADDED column below was measured
+against next season's points PER GAME; the figures this model is weighted on
+are in D-010 and were measured against season totals. See L-010.]` Six
+candidate criteria were tested predictively — season N's metric against season
+N+1's points, after removing what season N's points already explain. Method and
+its rationale are **L-008**. Rejections are **D-009**. Adoptions are now
+**D-010**.
 
 | Candidate | Same-season | ADDED | Verdict |
 |---|---|---|---|
@@ -88,17 +105,21 @@ RB team quality, 118 lead-back seasons, like-for-like roles: good offences
 HIGHER carry share (0.565 vs 0.548) and roughly half the expected touchdowns
 (6.62 vs 12.95). See **L-009**.
 
-`[VERIFIED: build_rankings.py:310 read, this session]` Two defects follow from
-this and are **not yet fixed**: `pass_epa` is set to zero for running backs, so
-they carry no absolute team term at all, and because the zeroed weight is not
-renormalised **every running back's combined signal is damped 15%** against
-every receiver's on identical evidence.
+`[FIXED this session]` The damping defect is gone: each position's weights sum
+to one on their own, so a term a position does not carry is absent from its
+budget rather than zeroed inside it. Running backs were damped 15% and
+quarterbacks 45%. `pass_epa` is still zero for running backs, now on purpose —
+D-010 measured every form of running back team quality at or below zero.
 
-`[VERIFIED: board join to load_ff_playerids birthdates, this session]` The
-players the age evidence says to fade are the ones the model currently
-promotes: McCaffrey 30 (+10.5, board 3), Barkley 29 (+11.9, board 13), Henry 32
-(+8.7, board 17). Same pattern as Jeanty, 23, on the league's worst offence
-(-2.46 z) receiving +4.2.
+`[VERIFIED: build_rankings.py run, this session]` Of the three older backs the
+age evidence said to fade, two fell and one did not. **Barkley 29: board 13 ->
+18** (+11.9 -> +2.5). **Henry 32: board 17 -> 34** (+8.7 -> -14.4). **McCaffrey
+30: board 3 -> 5** (+10.5 -> +12.9) — age costs him 10.0 points, the second
+largest age penalty on the board, and his receiving role pays back 14.0 because
+his 0.224 target share over 19 games is the highest of any back in the pool.
+**Jeanty, 22, still receives +19.9 at board 8**, because the team-quality term
+that would have penalised his offence was measured to predict nothing and was
+not built.
 
 ## Parked
 
@@ -121,72 +142,50 @@ regardless because write access does not exist.
 
 ## Next actions
 
-1. `[Owner — one lookup]` **Answer Q-008.** Confirm which scoring the
-   FantasyPros export was downloaded under. The entire base order rests on it
-   and the scoring is inferred, not verified. It also decides the fate of the
-   `reception_dependence` signal, which is currently either double-counting or
-   inverted.
-2. `[Opus+thinking — cross-system tradeoff, reweights a decided method]`
-   **Build the Q-009 signals.** Age curve for RB and WR/TE, RB team-offence
-   quality, air yards share for receivers, and the 15% damping fix. This
-   reweights D-004's signal budget, so it needs a new D-NNN and the weights must
-   be argued, not assumed. Do NOT add anything D-009 rejected.
-3. `[Sonnet — judgment against an external source]` Review the round-1 rookies
+1. `[Sonnet — a defect found while building, deliberately not fixed]`
+   **`opportunity_signals()` does not filter to the regular season.**
+   `scoring.season_totals` filters `season_type == "REG"` and the new
+   `snap_shares()` filters `game_type == "REG"`, but the usage aggregation does
+   not, so playoff games are in every share and in `td_luck`. McCaffrey shows 19
+   games. The shares are ratios so it largely cancels; `td_luck` does not cancel
+   and is inflated for players on deep playoff teams. Left alone this session
+   because it moves every share at once and would have muddied D-010's
+   before-and-after read. Fix it and re-read the board.
+2. `[Sonnet — judgment against an external source]` Review the round-1 rookies
    against Matt Waldman's Rookie Scouting Portfolio ($21.95, **not purchased**)
    and move them by hand. 12 rookies now reach the board; Jeremiyah Love at 18
    is the only one high enough to cost a real pick.
-4. `[Owner — manual: transcribe a list into a web form]` Enter
+3. `[Owner — manual: transcribe a list into a web form]` Enter
    `out/yahoo_prerank.txt` into Yahoo's pre-draft rankings page before
    2026-09-05 16:00 CDT. Do not re-sort the kickers and defences upward.
-5. `[Sonnet — cheap, data already in hand]` Wire `SOS SEASON` and
+4. `[Sonnet — cheap, data already in hand]` Wire `SOS SEASON` and
    `ECR VS. ADP` from the D-008 export. Both are parsed and discarded today.
    `ECR VS. ADP` removes the `[INFERRED]` caveat on the slot-4 draft
    simulation, which used consensus rank as an ADP stand-in. **Confirm the sign
    convention before using it.**
-6. `[Sonnet — a stated blind spot with a source]` `nfl.load_injuries()` exists
+5. `[Sonnet — a stated blind spot with a source]` `nfl.load_injuries()` exists
    and is unexplored. The model holds no injury data, which is the live caveat
-   on McCaffrey at board 3 and on any age signal built in action 2.
+   on McCaffrey at board 5 and the reason D-010 weights age against season
+   totals rather than per-game rates (L-010).
 
 ## Open questions
 
 ```
-Q-009: Which of the four surviving criteria get built, and at what
-  weights? Age (RB -0.228, WR -0.215), RB team-offence quality (63-point
-  gap), air yards share (+0.103), snap share (+0.080 to +0.096).
-Blocker: D-004's weights sum to one and are assigned, not fitted, so
-  adding four signals means re-cutting a fixed budget across nine terms.
-  No held-out season exists to fit against without building a backtest
-  this project does not need. Two existing terms are also in doubt:
-  carry share adds -0.012 and reception_dependence is blocked on Q-008.
-Evidence: the table and age bands under "Research completed" above.
-  Controls are last season's realised points as a proxy for the
-  consensus, so every ADDED figure is an UPPER bound.
-Resolution: a new D-NNN naming the weights and the reasoning, then a
-  rerun with Gibbs, Chase, McCaffrey, Barkley and Henry re-read against
-  the board. Not started.
+Q-009: ANSWERED 2026-08-15 (session 5) by D-010. Two of the four criteria
+  were built (age, and snap share for running backs) and two were dropped
+  on re-measurement (RB team-offence quality, air yards share). The
+  budget is now cut per position, which is also the damping fix. Carry
+  share survives at 0.12; reception_dependence is gone; touchdown
+  regression falls from 0.25 to 0.04/0.06. The ADDED figures in the
+  question were measured per game and do not apply — see L-010.
 ```
 
 ```
-Q-008: Which scoring was the owner's FantasyPros export downloaded
-  under? The file records no scoring anywhere in it, and the whole base
-  order now rests on it (D-008).
-Blocker: only the owner can see the download settings, or re-export
-  under a named scoring.
-Evidence: the export ranks Gibbs 1 / Chase 3 where the feed's known
-  full-PPR page ranks Chase 1.67 / Gibbs 3.01, so receptions are worth
-  less than full PPR in it. That rules out full PPR and cannot separate
-  half PPR from standard.
-Resolution: if half PPR, D-008 stands as written. If standard, average
-  the export with the feed's PPR page instead — the midpoint of standard
-  and full PPR is half PPR — which D-008 already costed and parked.
-Second consequence: the reception_dependence signal (D-004, weight 0.10)
-  exists ONLY to correct a full-PPR anchor, and D-008 removed that
-  anchor. If the export is half PPR the signal now double-counts a
-  correction already in the base order and should be dropped; if standard
-  it points the wrong way and should be inverted. It cannot stay as it is
-  under either answer. It currently penalises the highest-reception
-  receivers hardest: Nacua -2.85, Chase -2.69, St. Brown -2.10,
-  Smith-Njigba -2.05. Not started.
+Q-008: ANSWERED 2026-08-15 (session 5). The owner confirmed the export
+  was downloaded under HALF PPR, which matches the league. D-008 stands
+  as written and the averaging alternative it parked is not needed. The
+  reception_dependence signal is dropped rather than inverted (D-010),
+  on this answer and on its own measurement.
 ```
 
 ```

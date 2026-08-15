@@ -293,3 +293,45 @@ every running back's combined signal by 15%, because the zeroed weight is not
 renormalised.
 
 References: D-004, L-008.
+
+---
+
+## L-010 — Score a candidate signal against the exact quantity the model outputs, because rate and total rank the same signals differently
+
+When: Running the residual test of L-008, at the moment the outcome column is
+chosen. Any forecast where the thing being predicted could reasonably be
+written either as a total over a period or as a rate per unit — points per
+season or per game, revenue per year or per customer, defects per release or
+per thousand lines.
+
+Do: Write down what the model actually emits, then make the panel's outcome
+that same quantity. If the model ranks by season total, score candidates
+against season total. Do not pick the rate because it looks like the cleaner
+measurement of quality: the total contains availability, and if the model has
+no separate availability term then availability is part of what the signal has
+to carry. State the outcome variable beside every reported figure, because a
+number quoted without it cannot be compared to another one.
+
+Root cause: a rate divides out exposure — games played, months active, units
+shipped. Any candidate that predicts exposure therefore scores high against a
+total and near zero against a rate, and any candidate that predicts quality
+scores similarly against both. So the two outcomes agree on some signals and
+disagree sharply on others, and nothing in the residual test itself reveals
+which was used. The disagreement is invisible in the output, which is a single
+correlation either way, and it survives review because both panels are built
+correctly and both answer a sensible question. Only one of them answers the
+model's question.
+
+Evidence: the same six candidates were measured twice this session over
+2019-2025. Against next season's points per game, carry share added +0.026 and
+air yards share +0.115, which reproduces session 4's recorded -0.012 and +0.103
+and led to carry share being carried as a term in doubt. Against next season's
+season TOTAL, which is what this model's points curve and replacement levels
+are denominated in, carry share adds +0.137 and target share +0.214, and target
+share overtakes air yards share, reversing which receiver term the session was
+briefed to build. Age is the one candidate that scores about the same either
+way (-0.188 against total, -0.195 against rate), because it predicts both
+decline and disappearance. Two of the four signals the session was set up to
+build were dropped on the re-measurement; see D-010.
+
+References: D-004, D-009, D-010, L-008, L-009.

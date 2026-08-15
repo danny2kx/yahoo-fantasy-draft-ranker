@@ -466,3 +466,145 @@ adds +0.103 and age adds -0.228 / -0.215, both currently absent from the model
 and both carried forward as Q-009.
 
 References: D-001, D-004, L-008, L-009.
+
+---
+
+## D-010 — The signal budget is cut per position, sized by what each term adds once the others are in, and two of the four criteria Q-009 proposed do not survive their own test
+
+Status: Decided (2026-08-15). Supersedes the weight clause of D-004 and closes
+Q-009. Closes Q-008 with the owner's answer, half PPR.
+
+Decision: Replace D-004's single five-weight table with one table per position
+group, each summing to one:
+
+| Term | RB | WR/TE | QB |
+|---|---|---|---|
+| age (inverted) | 0.31 | 0.36 | — |
+| share (carry for RB, target for WR/TE) | 0.12 | 0.29 | — |
+| rb_receiving (a back's own target share) | 0.25 | — | — |
+| snap_share | 0.15 | — | — |
+| pass_epa | — | 0.17 | 0.27 |
+| td_luck (inverted) | 0.04 | 0.06 | 0.45 |
+| draft_capital | 0.13 | 0.12 | 0.28 |
+
+Build the age term for running backs, receivers and tight ends, and the snap
+share term for running backs. Do NOT build a running back team-offence quality
+term, and do NOT build air yards share as a term of its own. Drop
+`reception_dependence` entirely. Keep carry share at a reduced weight. Cut
+touchdown regression from 0.25 to 0.04 and 0.06.
+
+Why, term by term:
+
+*Age is built and is the largest weight at every position that was measured.*
+It adds -0.188 for running backs and -0.185 for receivers and tight ends,
+the strongest results in the set, and it is the only candidate that barely
+moves when the other terms are controlled for (-0.183 and -0.197). It is
+also the only one measuring something the usage terms cannot see, which is
+that a player stops being available at all.
+
+*Snap share is built for running backs only.* It adds +0.162 for backs and
+holds +0.093 after carry share. For receivers and tight ends it adds +0.087
+alone and -0.006 once target share is in, so for them it is target share
+wearing a different name and would take budget from the term that works.
+
+*Running back team-offence quality is NOT built, because it fails the test
+D-009 used to reject the red zone metrics.* Every form of it measures at or
+below zero for backs once the current season's points are controlled for:
+total team EPA -0.039, passing EPA -0.024, rushing EPA -0.054, and team
+expected touchdowns -0.039. L-009's 63-point gap between good and bad
+offences is a SAME-SEASON comparison — good offences scored more in the
+season they were good — which is exactly the evidence L-008 says does not
+establish forward value. The same-season correlation of total team EPA with
+points is +0.178, and none of it survives. Rejecting red zone usage on a
+-0.042 while adopting team quality on a -0.039 would apply two standards to
+one kind of evidence.
+
+*Air yards share is NOT built as its own term.* It adds +0.157 alone but only
++0.042 once target share is controlled for, so it is largely target share
+restated. Target share is the stronger measurement of the two (+0.214), and
+it is already the model's `share` input for receivers, so the budget goes
+there instead.
+
+*Carry share is kept, at 0.12 rather than 0.35.* Session 4 recorded it adding
+-0.012, which is what put it in doubt. Re-measured against season totals it
+adds +0.137, and +0.082 after games and the other terms — modest, positive,
+and the weakest of the four running back usage inputs, which is what the new
+weight says. L-009's separate finding stands and is not what this reverses:
+backs on bottom-third offences do hold the higher carry share (0.475 against
+0.408 over 2019-2025), so the metric does carry that contamination. It simply
+predicts next season anyway, and the fix L-009 proposed — pairing it with an
+absolute team term — is not available, because the absolute team term measures
+nothing (above).
+
+*A back's own target share is built at 0.25, filling the slot the team-quality
+term was meant to fill.* It adds +0.160 and holds +0.155 after carry share, so
+it is the second strongest running back input after age and is close to
+independent of the workload term already in the model. It is what actually
+separates a back who keeps his value when the offence changes from one who
+does not, which is the job the team-quality term was proposed to do.
+
+*Reception dependence is dropped, on both available grounds.* The owner
+answered Q-008 this session: the export is half PPR. That removes the
+full-PPR anchor the term existed to correct, so it would now double-count a
+correction already in the base order. Independently, the term as implemented
+is negated, and receptions per game measured against next season's points
+adds +0.141 for backs, so the term was contributing -0.141 — it was pointed
+the wrong way for running backs regardless of the scoring answer.
+
+*Touchdown regression falls from 0.25 to 0.04 and 0.06.* Inverted as D-004
+specifies, it adds +0.032 for backs and +0.087 for receivers, so its direction
+is right and its old weight was roughly eight times its measured contribution.
+This term was not in Q-009's scope, but the budget cannot be cut on measured
+contribution for four terms and left unmeasured on a fifth holding a quarter
+of it.
+
+*Per-position tables are what fixes the damping defect.* The old table zeroed
+`pass_epa` for running backs inside a budget that still counted it, damping
+every back's combined signal by 15% against every receiver's on identical
+evidence, and quarterbacks by 45%. Renormalising is the fix; giving backs a
+team term they do not deserve is not. A single table also cannot express that
+`share` means carry share worth 0.12 to a back and target share worth 0.29 to
+a receiver.
+
+Tradeoff: the weights are proportional to measured contribution, which is
+better founded than D-004's assignment, but the measurement controls for last
+season's realised points as a proxy for the consensus rather than the consensus
+itself, so every figure is an UPPER bound (the same caveat D-009 carries). The
+consensus already knows how old a player is, so the age term's true marginal
+value is smaller than -0.188. Quarterback weights are D-004's renormalised and
+were never measured, because the panels cover backs, receivers and tight ends
+only; the visible effect is that quarterback adjustments roughly double in
+size, which put Josh Allen at board line 24 where he was 25. Separately, this
+entry cuts touchdown regression hard enough to reverse the sign of the board's
+former largest downgrade: Jahmyr Gibbs moves from -14.1 points to +13.0.
+
+Alternative rejected: build all four criteria at the weights Q-009 implied,
+which is what the session was set up to do. Rejected on measurement — two of
+them contribute nothing once the terms already in the model are accounted for,
+and D-009 rejected other criteria on weaker evidence than that. Also rejected:
+keep one weight table and renormalise per player by which terms his position
+carries. This is a smaller change and it does fix the damping, but it forces
+one number to serve as both the carry-share weight and the target-share weight
+when the two differ by a factor of two in measured value. Also rejected:
+express age as the four bands STATUS records rather than as a standardised
+value. The bands are monotonic and would work, but the contribution was
+measured linearly, and a band table adds a lookup that the measurement does not
+support.
+
+Evidence: panel rebuilt this session over 2019-2025, six year-over-year
+transitions, regular season only, scored under this league's rules, by L-008's
+method. Running backs n=314 with 80+ carries, receivers and tight ends n=782
+with 40+ targets. Re-run including players with no following season as zero
+(n=327 and n=836) moves nothing material: age strengthens to -0.209 and -0.225,
+shares soften by about 0.01. The full ADDED table is in the session record
+below. `[INFERRED]` Session 4's differing figures are reproduced by measuring
+next season's points PER GAME instead of the season total: carry share moves
+from +0.137 to +0.026 against its recorded -0.012, and air yards share from
++0.157 to +0.115 against its recorded +0.103. Season total is the outcome this
+model must predict, because the points curve and the replacement levels are
+both season totals and no separate availability term exists. See L-010.
+`build_rankings.py` run after the change: birthdate and pfr_id both resolve
+150/150 of the top 150, `out/yahoo_prerank.txt` is 189 names, all unique, no
+blanks, first tight end at 19, first quarterback at 24.
+
+References: D-001, D-004, D-005, D-008, D-009, L-008, L-009, L-010.

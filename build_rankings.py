@@ -6,8 +6,9 @@ Method is D-001 and D-003 in docs/DECISIONS.md:
   2. That rank is mapped onto a points curve built from the 2023-2025 seasons,
      scored under this league's own rules, so the points are correct for half
      PPR whatever the consensus was published under.
-  3. Five bounded signals then add or subtract points from what the curve
-     returned, capped so the consensus always remains the anchor.
+  3. Bounded signals then add or subtract points from what the curve returned,
+     capped so the consensus always remains the anchor. Which signals apply and
+     what they weigh depends on the position (D-010).
   4. Value-based drafting converts points into a single cross-position order.
 
 Run: python build_rankings.py
@@ -15,6 +16,7 @@ Run: python build_rankings.py
 
 import csv
 import math
+from datetime import date
 from pathlib import Path
 
 import nflreadpy as nfl
@@ -64,13 +66,60 @@ SKILL_SLOTS = league.TEAMS * (
 # three and a half tight ends per roster.
 PINNED_PER_TEAM = {"QB": 1, "TE": 2}
 
+# Age is measured against the season the player turns this age on 1 September.
+AGE_ON = date(DRAFT_CLASS, 9, 1)
+
+POSITION_GROUP = {"RB": "RB", "WR": "WR/TE", "TE": "WR/TE", "QB": "QB"}
+
+# Weights per position group, each summing to one (asserted below). One table
+# could not serve every position: `share` means carry share for a running back
+# and target share for a receiver, and those two contribute very differently, so
+# a single number would have to be both 0.12 and 0.29. Summing to one *per
+# position* is also what removes the old damping defect — the previous single
+# table zeroed 0.15 of a running back's budget and 0.45 of a quarterback's
+# without renormalising, so identical evidence produced a smaller signal for
+# them than for a receiver.
+#
+# Sizes are proportional to what each term still adds once the others are in the
+# model, measured over 2019-2025 by L-008's method. Draft capital is not on that
+# scale: it scores rookies, who have no prior season to measure.
 SIGNAL_WEIGHTS = {
-    "share": 0.35,
-    "td_luck": 0.25,
-    "pass_epa": 0.15,
-    "draft_capital": 0.15,
-    "reception_dependence": 0.10,
+    "RB": {
+        "age": 0.31,
+        "rb_receiving": 0.25,
+        "snap_share": 0.15,
+        "share": 0.12,
+        "td_luck": 0.04,
+        "draft_capital": 0.13,
+    },
+    "WR/TE": {
+        "age": 0.36,
+        "share": 0.29,
+        "pass_epa": 0.17,
+        "td_luck": 0.06,
+        "draft_capital": 0.12,
+    },
+    # Never measured: the age and share panels cover running backs, receivers
+    # and tight ends only. These are D-004's quarterback weights renormalised,
+    # nothing more, so a quarterback's signal is no longer damped 45% by terms
+    # that cannot apply to him.
+    "QB": {
+        "td_luck": 0.45,
+        "pass_epa": 0.27,
+        "draft_capital": 0.28,
+    },
 }
+
+SIGNAL_TERMS = (
+    "age", "share", "rb_receiving", "snap_share", "pass_epa", "td_luck",
+    "draft_capital",
+)
+
+for _group, _weights in SIGNAL_WEIGHTS.items():
+    if abs(sum(_weights.values()) - 1.0) > 1e-9:
+        raise SystemExit(f"{_group} weights sum to {sum(_weights.values())}, not 1")
+    if set(_weights) - set(SIGNAL_TERMS):
+        raise SystemExit(f"{_group} names a term that is never computed")
 
 # Every source spells the same franchises differently. Normalised to nflverse.
 TEAM_ALIASES = {
@@ -139,7 +188,6 @@ def opportunity_signals() -> pl.DataFrame:
             team_carries=pl.col("rush_attempt_team").sum(),
             targets=pl.col("rec_attempt").sum(),
             team_targets=pl.col("rec_attempt_team").sum(),
-            receptions=pl.col("receptions").sum(),
             td=pl.col("total_touchdown").sum(),
             td_exp=pl.col("total_touchdown_exp").sum(),
         )
@@ -147,15 +195,30 @@ def opportunity_signals() -> pl.DataFrame:
         .with_columns(
             carry_share=pl.col("carries") / pl.col("team_carries"),
             target_share=pl.col("targets") / pl.col("team_targets"),
-            receptions_per_game=pl.col("receptions") / pl.col("games"),
             # Positive means he scored more than his opportunity earned, which
             # is the regression signal, so it is subtracted later.
             td_luck=pl.col("td") - pl.col("td_exp"),
         )
     )
     return agg.select(
-        "player_id", "signal_team", "carry_share", "target_share",
-        "receptions_per_game", "td_luck",
+        "player_id", "signal_team", "carry_share", "target_share", "td_luck",
+    )
+
+
+def snap_shares() -> pl.DataFrame:
+    """Share of his offence's snaps each player was on the field for, 2025.
+
+    Keyed on the Pro Football Reference id, which is the only id this source
+    carries, so it reaches the board through the same bridge table as the rest.
+    """
+    snaps = nfl.load_snap_counts(seasons=[SIGNAL_SEASON]).filter(
+        pl.col("game_type") == "REG"
+    )
+    return (
+        snaps.group_by("pfr_player_id")
+        .agg(snap_share=pl.col("offense_pct").mean(), snap_games=pl.len())
+        .filter(pl.col("snap_games") >= 6)
+        .select(pl.col("pfr_player_id").alias("pfr_id"), "snap_share")
     )
 
 
@@ -246,6 +309,8 @@ def consensus() -> pl.DataFrame:
             pl.col("fantasypros_id").cast(pl.Utf8).alias("id"),
             "gsis_id",
             "yahoo_id",
+            "pfr_id",
+            "birthdate",
         )
         .unique(subset=["id"])
     )
@@ -264,6 +329,16 @@ def consensus() -> pl.DataFrame:
     matched = out.filter(pl.col("id").is_not_null() & (pl.col("ecr") <= 150)).height
     if matched < 140:
         raise SystemExit(f"only {matched}/150 of the anchor's top 150 resolved an id")
+
+    # A populated id column is not evidence it joins (L-005), and the age and
+    # snap-share signals are worthless if these two arrive mostly null. Both are
+    # checked over the top 150, where a missing value actually costs a pick.
+    top = out.filter(pl.col("ecr") <= 150)
+    for column, floor in (("birthdate", 130), ("pfr_id", 130)):
+        resolved = top.filter(pl.col(column).is_not_null()).height
+        print(f"  {column} resolved for {resolved}/{top.height} of the top 150")
+        if resolved < floor:
+            raise SystemExit(f"only {resolved}/150 resolved {column}; check the bridge")
     return out.rename({"gsis_id": "player_id"})
 
 
@@ -273,11 +348,13 @@ def build() -> pl.DataFrame:
 
     opp = opportunity_signals()
     epa = team_passing_quality()
+    snaps = snap_shares()
     rookie, threat = draft_capital()
 
     df = (
         skill.join(opp, on="player_id", how="left")
         .join(epa, on="team", how="left")
+        .join(snaps, on="pfr_id", how="left")
         .join(rookie, on="id", how="left")
         .join(
             threat.rename({"team": "threat_team", "position": "threat_pos"}),
@@ -300,7 +377,19 @@ def build() -> pl.DataFrame:
         )
         .otherwise(None),
         td_luck_raw=pl.when(same_team).then(pl.col("td_luck")).otherwise(None),
-        recpg_raw=pl.when(same_team).then(pl.col("receptions_per_game")).otherwise(None),
+        # A back's receiving role is the part of his workload that survives a
+        # change of coach or of goal-line back, and it is measured to be his
+        # second strongest input after age.
+        rb_receiving_raw=pl.when(same_team & (pl.col("pos") == "RB"))
+        .then(pl.col("target_share"))
+        .otherwise(None),
+        snap_share_raw=pl.when(same_team & (pl.col("pos") == "RB"))
+        .then(pl.col("snap_share"))
+        .otherwise(None),
+        age_years=(
+            pl.lit(AGE_ON) - pl.col("birthdate").str.to_date(strict=False)
+        ).dt.total_days()
+        / 365.25,
     )
 
     df = df.with_columns(
@@ -311,9 +400,12 @@ def build() -> pl.DataFrame:
         .then(zscore(pl.col("pass_epa")))
         .otherwise(0.0)
         .fill_null(0.0),
-        # Full-PPR consensus ranks high-reception players slightly too high for
-        # a half-PPR league, so reception volume is a mild downgrade here.
-        reception_dependence=(-zscore(pl.col("recpg_raw")).over("pos")).fill_null(0.0),
+        rb_receiving=zscore(pl.col("rb_receiving_raw")).over("pos").fill_null(0.0),
+        snap_share=zscore(pl.col("snap_share_raw")).over("pos").fill_null(0.0),
+        # Inverted: the older player is the one to fade. Standardised within the
+        # position, because a 29-year-old receiver and a 29-year-old back are
+        # not at the same point of their curves.
+        age=(-zscore(pl.col("age_years")).over("pos")).fill_null(0.0),
     )
 
     df = df.with_columns(
@@ -327,10 +419,18 @@ def build() -> pl.DataFrame:
         )
     )
 
-    # Weights sum to one, so the combined signal stays on the z-scale of its
-    # inputs.
+    # Each position's weights sum to one, so the combined signal stays on the
+    # z-scale of its inputs for every position rather than only for receivers.
+    # A term a position does not carry is absent from its table, not zeroed
+    # inside a budget it still counts against.
+    group = pl.col("pos").replace_strict(POSITION_GROUP)
     combined = sum(
-        pl.col(name) * weight for name, weight in SIGNAL_WEIGHTS.items()
+        pl.col(term)
+        * group.replace_strict(
+            {g: w.get(term, 0.0) for g, w in SIGNAL_WEIGHTS.items()},
+            return_dtype=pl.Float64,
+        )
+        for term in SIGNAL_TERMS
     )
     df = df.with_columns(signal=combined).with_columns(
         point_shift=(pl.col("signal") * POINTS_PER_SIGNAL)
