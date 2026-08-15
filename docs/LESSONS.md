@@ -216,3 +216,80 @@ shallow to "protect the tight-end gap" dropped the top tight end from 21st to
 moving running back and receiver from the 24th player to the 49th and 70th.
 
 References: D-005.
+
+---
+
+## L-008 — Score a candidate signal against the NEXT period, after removing what the baseline already knows
+
+When: Choosing or weighting any feature that will adjust a forward-looking
+projection — a draft ranking, a forecast, a risk score — where the baseline
+being adjusted already encodes recent history.
+
+Do: Never rank candidate signals by their correlation with the same period they
+are measured in. Build the panel so period N's metric sits beside period N+1's
+outcome, then strip out what period N's outcome alone predicts about N+1, and
+rank candidates by what survives. Run that residual test before assigning any
+weight. Where the true baseline is unavailable (here, historical consensus
+rankings are not published), use last period's realised outcome as the proxy and
+state that the result is an upper bound on the signal's real value.
+
+Root cause: a metric measured over the same window as the outcome is often a
+component of it, so it scores highly for a reason that carries no forecasting
+information at all. The correlation is real and the interpretation is backwards.
+The failure is self-concealing, because the strongest same-period numbers belong
+to the most obviously "causal" metrics, which is exactly what makes them look
+like the best signals. It also hides the opposite error: a genuine forward
+indicator that is uncorrelated with the current period looks like noise and gets
+discarded.
+
+Evidence: this session tested six candidate signals over 2019-2025, six
+year-over-year transitions. Red zone carries correlate +0.724 with the SAME
+season's fantasy points, which is near the top of anything in the model, and
++0.377 with the next season's — but after removing what the current season's
+points already explain, they add **-0.042**. Red zone target share adds -0.004.
+Goal-line carries add -0.106, a mild sell signal rather than the buy signal
+intuition suggests. Age runs the other way: -0.045 against the same season,
+effectively nothing, and **-0.228** added against the next, the strongest result
+in the set. A same-period screen would have adopted every red zone metric and
+discarded the one that works. The five signals D-004 weights were selected
+without this test; carry share, at weight 0.35, adds -0.012.
+
+References: D-004, D-009, L-009.
+
+---
+
+## L-009 — A "share of team" metric quietly rewards belonging to a weak team
+
+When: Using any share-of-total feature — share of carries, of targets, of
+budget, of headcount, of tickets — to compare individuals who belong to
+different groups of differing quality.
+
+Do: Before weighting the share, check its correlation with the quality of the
+group it is divided by. Where a weak group concentrates its work on fewer
+people, the share is negatively correlated with opportunity and the feature
+carries the wrong sign. Pair every share with an absolute measure of the group's
+output, or replace it with an absolute per-individual measure, so the size of
+the pie survives into the model. Treat a share and a group-quality term as a
+matched pair that must be introduced together.
+
+Root cause: dividing by the group's total is usually framed as "normalising for
+team context", but it removes precisely the information that separates a good
+situation from a bad one. What remains is role within the group. On a weak group
+one individual absorbs a larger fraction of a smaller total, so the metric rises
+as the real opportunity falls. Nothing errors, the feature looks well behaved,
+and its distribution is unremarkable — the sign flip is only visible when the
+share is cross-tabulated against group quality, which normalising was supposed
+to make unnecessary.
+
+Evidence: over 118 lead-back seasons (2023-2025), backs on bottom-third
+offences held a HIGHER mean carry share than backs on top-third offences, 0.565
+against 0.548 on like-for-like roles, while scoring 177.3 points against 240.8 —
+a 63-point gap in the opposite direction to the feature. The mechanism is
+scoring chances: 6.62 expected touchdowns against 12.95, close to double. Carry
+share is the model's heaviest running-back input at weight 0.35, and
+`build_rankings.py` sets the only absolute team term, `pass_epa`, to zero for
+running backs, so nothing offsets it. The same division also silently damps
+every running back's combined signal by 15%, because the zeroed weight is not
+renormalised.
+
+References: D-004, L-008.

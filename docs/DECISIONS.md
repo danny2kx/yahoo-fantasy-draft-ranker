@@ -268,3 +268,201 @@ a quarterback and 12 are rostered, so pushing them later can cost quality but
 can never leave the roster without one.
 
 References: D-002, D-005.
+
+---
+
+## D-007 — A signal adjusts a player's projected points, not his positional rank, so the cap bounds value instead of position
+
+Status: Decided (2026-08-15). Supersedes the capped-rank clause of D-004 and
+closes Q-007.
+
+Decision: Let the expert consensus alone decide which rank is read off the
+points curve. Apply the combined signal to the points that lookup returns, as an
+addition capped at plus or minus 24 points, scaled at 18 points per unit of
+combined signal. Re-rank each position on the adjusted points. The cap on rank
+movement is removed entirely: a player may move as many positional ranks as 24
+points buys him, which is few at the top of a position and many in the middle.
+
+Why: D-004's cap was applied in rank space and then read through the points
+curve, which is not a bound at all. The curve is steepest at the top of a
+position and nearly flat in the middle, so the same "capped" 8-rank shift was
+worth about 86 points to the best running back and about 20 to a middling one.
+No theory says the same evidence should be worth four times as much for one
+player as for another purely because of where he sits on a list. The distortion
+was an artifact of applying a linear operation in rank space and reading it
+through a non-linear map, not a judgement anyone made. Moving the adjustment
+into points space removes the map from the path. It also makes the cap a claim
+that can be argued with: no single season of usage evidence outweighs the expert
+consensus by more than about a point and a half per game.
+
+The brief offered two fixes — cap in points, or apply the shift after the curve
+lookup. They are the same fix. Applying the shift after the lookup means the
+shift is denominated in points, and denominating it in points means it must be
+applied after the lookup. This entry implements both descriptions as one change.
+
+Tradeoff: 24 points is a judgement, not a fitted quantity, exactly as D-004's 8
+ranks was. The scale of 18 points per signal unit is chosen so the cap binds at
+1.33 standard deviations, which is where D-004's cap bound, so the intent that
+an exceptional player reaches the cap and an ordinary one barely moves is
+carried over rather than re-derived. Separately, the fix deliberately allows
+large rank movement where the curve is flat: Davante Adams moves 8 receiver
+ranks on 14.2 points. That is the intended behaviour and the mirror image of the
+defect — where a rank is cheap in points, a rank move should be cheap to make.
+The cost is that the "shift" column on the cheat sheet no longer reads as a
+small tidy integer, which was the property that made the old defect invisible.
+
+Alternative rejected: Keep the adjustment in rank space and vary the rank cap by
+position, or by depth within a position, so that a rank is worth roughly the
+same points everywhere. Rejected because it approximates in the wrong space: it
+would need a per-position, per-depth table of rank-to-point conversions that the
+curve already holds exactly, and every future change to the curve would silently
+invalidate the table. Also rejected: capping the adjustment as a percentage of
+the player's own projected points. Rejected because it reintroduces the same
+defect in softer form — 15 per cent of the top back is 53 points and 15 per cent
+of a middling one is 15 — and because the signals are z-scores of usage, which
+carry no claim that a better player is mispriced by proportionally more.
+
+Evidence: `build_rankings.py` run this session. Jahmyr Gibbs, consensus RB1,
+carries the pool's largest touchdown overperformance (18 against 10.68 expected)
+and therefore the board's largest downgrade under both methods. Under D-004 that
+downgrade was 5 positional ranks, which the RB curve priced at 85.6 points
+(354.1 at rank 1, 268.5 at rank 5), and he landed RB5, 8th overall. Under this
+entry the same signal is worth minus 14.1 points, he stays RB1, and he lands 1st
+overall. Ja'Marr Chase, consensus WR1, moved from 7th to 2nd on the same
+mechanism, and shows the defect in its purest form: his own signal was small,
+yet he lost 63.1 points. The receiver curve pays 328.6, 294.4, 265.5, 245.9,
+239.7 and 227.8 at ranks 1 through 6. CeeDee Lamb rose from WR5 to WR1, worth
+88.9 points, and Justin Jefferson from WR6 to WR2, worth 66.6, which displaced
+Chase from rank 1 to rank 3 and cost him the difference between 328.6 and 265.5.
+A capped rank move is therefore not even bounded for the player who receives it:
+it silently repriced a third player who was never adjusted at all. Under this
+entry Lamb and Jefferson receive plus 19.0 and plus 21.0 points, which is not
+enough to pass him. 31 players are adjusted by 8 points or more against the
+24-point cap. The change was isolated from the anchor swap of
+D-008 by a scratch run holding the old feed anchor and applying only this fix:
+Gibbs 1st and Chase 2nd in that run too, so D-008 contributes nothing to either
+case. Zero quarterbacks remain in the top 12, so D-005 and D-006 still hold.
+
+References: D-001, D-004, D-008, L-007.
+
+---
+
+## D-008 — The base consensus order comes from the owner's own FantasyPros export, not from the free feed's whole-league page
+
+Status: Decided (2026-08-15). Narrows the source clause of D-001; the method is
+unchanged.
+
+Decision: Read the base order from
+`references/FantasyPros_2026_Draft_ALL_Rankings.csv`, the owner's own export in
+the scoring he selected. The export carries no player identifier, so the feed's
+`redraft-overall` page is still loaded and joined on player name plus position,
+purely to recover the FantasyPros id the opportunity signals key on. The export
+stays untracked, as a redistributed third-party ranking that is not this
+project's data to publish. The two extra columns it carries, season strength of
+schedule and ECR against ADP, are deliberately not wired into the model yet.
+
+Why: L-006 established that the free feed publishes exactly one whole-league
+redraft page and it is full PPR. This league is half PPR, so that page
+systematically over-ranks reception volume, and D-001 anchors the entire board
+on it. The owner's export is the scoring he actually selected, which makes it
+the closer anchor for the same method. The effect is smaller than it appears,
+because only within-position order is consumed: `base_pos_rank` ranks each
+player inside his own position, so the anchor never decides a running back
+against a receiver. That comparison is made by the points curve and the
+replacement level, which are already computed under this league's rules.
+
+Tradeoff: The build now depends on a local untracked file, so it is no longer
+reproducible from public data alone, and a fresh clone cannot run it. The export
+holds 327 players against the feed's 505, which shortens the board from 216
+names to 189; that still covers the 180 players the league drafts, but the slack
+is thinner. `[INFERRED, not verified]` The export's scoring flavour is not
+recorded anywhere inside the file. It was inferred from the running back and
+receiver ordering — Gibbs 1st and Chase 3rd, where the full-PPR page has Chase
+1st and Gibbs 3rd — which shows receptions are worth less than full PPR, but
+cannot distinguish half PPR from standard. If it is standard rather than half,
+this anchor is wrong in the opposite direction to the one it replaced. Recorded
+as Q-008.
+
+Alternative rejected: Keep the feed's full-PPR page. Rejected because the league
+is half PPR and a full-PPR anchor is a known, directional error in the base
+order, which no downstream step corrects. Also rejected: average the export with
+the feed's PPR page. This is a real option and would be the better one if the
+export turns out to be standard scoring, because the midpoint of standard and
+full PPR is half PPR. Rejected for now because it is the right fix to a
+different problem: if the export is already half PPR, averaging it back toward
+full PPR reintroduces the error. Resolving Q-008 decides between them, and the
+averaging option is cheap to build if the answer goes that way.
+
+Evidence: The join was probed before any code changed. Player name plus position
+matched 150 of the export's top 150 and 326 of its 327 rows against the feed's
+`redraft-overall` page, with zero position disagreements and no row duplication;
+the single miss is Noah Whittington at overall rank 326, below any board cut.
+`build_rankings.py` now asserts on all three properties and exits if the top-150
+match rate falls below 140. The swap's effect was isolated by running the same
+code against both anchors: the top 12 is identical in composition, and the
+largest moves are Brock Bowers 54th to 24th, De'Zhaun Stribling 127th to 87th,
+Jonathon Brooks 99th to 63rd, Jayden Daniels 79th to 47th, Trey McBride 21st to
+43rd and Travis Kelce 84th to 104th. Neither Gibbs nor Chase moves at all.
+
+References: D-001, D-007, L-006.
+
+---
+
+## D-009 — No red zone or goal-line signal is added, because neither predicts anything the consensus does not already hold
+
+Status: Decided (2026-08-15)
+
+Decision: Do not add red zone carries, red zone targets, red zone carry or
+target share, goal-line touches, goal-line share, or a "red zone premium"
+(red zone share minus overall share) to the signal set. Do not revisit without
+new evidence of a different kind — a same-season correlation is not that
+evidence. Target competition between receivers is likewise not added: a
+separate "best other pass catcher's share" term is already absorbed by target
+share.
+
+Why: The owner asked for these criteria and the intuition behind them is sound —
+touchdowns are worth 6 points and red zone touches are where they happen. The
+test disagrees. Measured over 2019-2025, six year-over-year transitions, every
+red zone and goal-line variant adds nothing once the current season's fantasy
+points are controlled for, which is the information the consensus baseline
+already carries. Red zone carries add -0.042, red zone target share -0.004,
+goal-line carries -0.106. They score highly against the SAME season only because
+they are a component of it. Adding one would import noise and double-count the
+touchdown-regression signal that D-004 already weights at 0.25, since heavy
+goal-line usage this season is a mild predictor of DECLINE next season, not
+growth. See L-008 for the portable form of this trap.
+
+Tradeoff: A same-season fit is what most published fantasy analysis reports, so
+this decision will look wrong against any article ranking players by red zone
+opportunity. It also rejects a criterion the owner raised directly, which means
+the burden is on this entry's evidence rather than on the intuition. The test
+controls for last season's realised points as a proxy for the consensus, not the
+consensus itself, which is unavailable historically; that proxy is weaker than
+the real baseline, so the measured contribution is an UPPER bound. The signals
+score at or below zero against an upper bound, which is what makes the rejection
+safe rather than marginal.
+
+Alternative rejected: Add red zone share at a small weight anyway, on the
+grounds that the intuition is widely held and a small weight cannot do much
+harm. Rejected because a signal measured to contribute nothing is not neutral in
+this model — every weight is drawn from a fixed budget summing to one, so
+carrying a dead term dilutes the terms that work, and L-009 shows the model is
+already carrying one share metric with the wrong sign. Also rejected: adding a
+receiver target-competition term, which measured -0.027 after target share was
+accounted for, because two good receivers splitting the targets IS each man's
+target share.
+
+Evidence: Scratch panels built this session from `nfl.load_pbp(2019-2025)`,
+regular season only, red zone defined as yardline_100 <= 20 and goal line as
+<= 5, joined to league-scored season totals. Running backs, n=260 player-seasons
+with 80+ carries: red zone carries same-season +0.724 / added -0.042; red zone
+carry share +0.698 / -0.046; goal-line carries +0.650 / -0.106; goal-line share
++0.641 / -0.084; goal-line premium +0.234 / -0.128. Receivers and tight ends,
+n=676 with 40+ targets: red zone targets +0.733 / -0.041; red zone target share
++0.695 / -0.004; goal-line targets +0.546 / -0.052; red zone premium -0.046 /
+-0.092. Receiver target competition, n=676: -0.151 raw, -0.027 after target
+share and team passing EPA. For contrast, in the same panels air yards share
+adds +0.103 and age adds -0.228 / -0.215, both currently absent from the model
+and both carried forward as Q-009.
+
+References: D-001, D-004, L-008, L-009.
