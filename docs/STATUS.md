@@ -23,7 +23,7 @@ rankings, so the snake draft runs itself without the owner attending.
 - `[VERIFIED: probe run, this session]` Joining rankings to `load_ff_playerids()`
   on `fantasypros_id` resolves a Yahoo ID for 133/172 (77%) of the top-180 ECR.
   Misses are 2025 rookies and all DST entries.
-- `[VERIFIED: git log, 7b1c60f]` Three commits on `master`. Working tree clean.
+- `[VERIFIED: git log, 64338f9]` Five commits on `master`. Working tree clean.
 - `[VERIFIED: WebFetch of developer.yahoo.com/oauth2/guide/flows_authcode/]`
   `yahoo_auth.py` matches the documented authorization-code flow: correct
   endpoints, HTTP Basic client authentication, `redirect_uri` present on both
@@ -32,70 +32,90 @@ rankings, so the snake draft runs itself without the owner attending.
   parses but has never run against Yahoo. Its JSON traversal of the settings
   and leagues endpoints is written from the API guide's documented shapes, not
   from an observed response. Expect to fix a traversal detail on first run.
-- `[VERIFIED: user-stated, this session]` The Yahoo developer app currently
-  holds the **TW Auction** permission (Yahoo Taiwan's e-commerce marketplace),
-  not Fantasy Sports. No fantasy data is reachable until this is corrected.
-  This is the sole blocker.
+- `[VERIFIED: WebFetch, 2026-08-15]` **Fantasy Sports is no longer a self-serve
+  app permission.** It is not on the app-creation form at all; the form offers
+  only OpenID Connect and TW Auction. `developer.yahoo.com/fantasysports/guide/`
+  now 308-redirects to `sports.yahoo.com/developer`, which gates access behind
+  an application reviewed by the Yahoo Fantasy Sports team. This supersedes the
+  prior reading that TW Auction was selected by mistake from an adjacent
+  checkbox: Fantasy Sports was never on that list to select.
+- `[VERIFIED: WebFetch of sports.yahoo.com/developer/access/, 2026-08-15]`
+  The API is **read-only**. "Write access is not available at this time."
+  Personal or single-league use is explicitly named as an eligible use case.
+  No approval turnaround time is published.
+- `[VERIFIED: user-stated, 2026-08-15]` Access application submitted, describing
+  personal single-league read-only use. Awaiting review. No response yet.
+- `[ASSUMED: untested]` Whether a token from an app without the Fantasy Sports
+  permission reaches fantasy endpoints at all. Undocumented either way. One
+  `probe_league.py` run against a real token settles it.
 - `[VERIFIED: user-stated, this session]` The league is a **snake** draft.
-- `[VERIFIED: git remote -v]` Repository has **no remote**. All three commits
-  exist only on this machine.
+- `[VERIFIED: git ls-files + full-history grep, 2026-08-15]` Repository is safe
+  to publish: `.env` was never committed, only `.env.example` with empty secret
+  fields; no secret-shaped strings and no personal data anywhere in history.
+- `[VERIFIED: git remote -v, 2026-08-15]` Repository still has **no remote**.
+  A public GitHub repo was agreed but the create command has not been run.
 
 ## Blocked
 
-Everything downstream of league settings. Scoring rules, roster slots, and
-draft date all come from `probe_league.py`, which needs a working token.
+Nothing is blocked on Yahoo any more. The API path is gated behind an approval
+queue with no published turnaround, but the API was only ever a convenience for
+reading four settings values that are visible on the league's own settings page.
+The deliverable (D-002) is entered into Yahoo's pre-rank page by hand regardless,
+because write access does not exist. So the draft work proceeds on
+owner-transcribed settings, and the API becomes a later convenience if approved.
+
+Only remaining input: the owner has not yet supplied the four settings values.
 
 ## Next actions
 
-1. `[Haiku -- mechanical: form fill, no judgment]` Re-create or edit the Yahoo
-   developer app at https://developer.yahoo.com/apps/create/ with:
-   Application Type `Installed Application`; Redirect URI
-   `https://localhost:8077`; API Permissions **Fantasy Sports** (NOT TW
-   Auction). Take Read/Write if offered, else Read. Put the new Client ID and
-   Secret in `.env`.
-2. `[Haiku -- mechanical: run a script, paste output]` Run
-   `python yahoo_auth.py` to print the authorization URL, approve it while
-   signed into the Yahoo account that owns the league, then
-   `python yahoo_auth.py <code>` to redeem.
-3. `[Sonnet -- debug against a documented response shape]` Run
-   `python probe_league.py`. Fix the JSON traversal against the real response.
-   Record the observed scoring type, roster slots, draft type and draft time.
-4. `[Sonnet -- pattern build against a specified method]` Build the rank-to-points
-   curve: compute 2023-2025 season fantasy points per player under the league's
-   actual scoring, rank within position per season, average across seasons.
-5. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
+1. `[Haiku -- mechanical: run one command]` Create the public GitHub repo and
+   push: `gh repo create yahoo-fantasy-draft-ranker --public --source=.
+   --remote=origin --push`. The URL was cited on the Yahoo access application,
+   so it must resolve.
+2. `[Haiku -- mechanical: transcribe from a web page]` Owner reads the league's
+   Settings page and reports: scoring type (standard / half PPR / full PPR, or
+   the custom stat modifier table), the full roster slot list with counts,
+   number of teams, and draft date and time. Record verbatim in this file.
+3. `[Sonnet -- pattern build against a specified method]` Build the
+   rank-to-points curve: compute 2023-2025 season fantasy points per player
+   under the league's actual scoring, rank within position per season, average
+   across seasons.
+4. `[Sonnet -- pattern build against a specified method]` Apply VBD per D-001,
    assign tiers from gaps in the VBD curve, emit a name-ordered list for
    Yahoo's pre-draft ranking page plus a tiered HTML cheat sheet.
+5. `[Sonnet -- opportunistic, not on the critical path]` If Yahoo approves the
+   application, put the credentials in `.env`, run `yahoo_auth.py`, then
+   `probe_league.py`. Fix its JSON traversal against the real response and
+   check the observed settings against the transcribed ones.
 
 ## Open questions
 
 ```
 Q-001: What is the league's scoring type and roster composition?
-Blocker: probe_league.py cannot run until the Yahoo app scope is fixed.
-Resolution: probe output naming points-per-reception and the roster slot
-  counts. Until then VBD cannot be computed correctly, because the
-  replacement level depends on league size times starters per position.
+Blocker: none. Owner transcribes it from the league Settings page.
+Resolution: the scoring type and roster slot counts recorded in this file.
+  Until then VBD cannot be computed correctly, because the replacement
+  level depends on league size times starters per position.
 ```
 
 ```
 Q-002: When is the draft?
-Blocker: same as Q-001; settings.draft_time is unread.
-Resolution: probe output. Decides whether there is time for the tiered
-  cheat sheet or only the bare ranked list.
+Blocker: none. Same source as Q-001.
+Resolution: the draft date recorded in this file. Decides whether there is
+  time for the tiered cheat sheet or only the bare ranked list.
 ```
 
 ```
-Q-003: Does Yahoo still offer Read/Write scope for Fantasy Sports, or
-  Read only?
-Blocker: the option list is only visible on the app-creation form.
-Resolution: user reports what the Fantasy Sports accordion offers when
-  re-creating the app. Read alone is sufficient for all draft work; the
-  answer only constrains later in-season lineup automation.
+Q-003: ANSWERED 2026-08-15. Read only. sports.yahoo.com/developer/access/
+  states "Access to the Yahoo Fantasy Sports API is read-only by default"
+  and "Write access is not available at this time." Read/Write can be
+  requested in the application notes but is not offered as a scope. This
+  rules out later in-season lineup automation through the API.
 ```
 
 ```
-Q-004: Should this repository get a git remote?
-Blocker: creating one publishes the code; requires an explicit decision.
-Resolution: user says yes (and names the host) or no. Until then all work
-  exists on one machine with no backup.
+Q-004: ANSWERED 2026-08-15. Yes, public GitHub. Decided because the Yahoo
+  access application requires a valid URL describing the product, and the
+  repository was verified clean of secrets and personal data. Execution
+  pending: see next action 1.
 ```
