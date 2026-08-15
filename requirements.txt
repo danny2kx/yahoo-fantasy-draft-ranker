@@ -1,0 +1,5 @@
+yahoo-fantasy-api
+yahoo-oauth
+python-dotenv
+nflreadpy
+requests

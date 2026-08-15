@@ -1,0 +1,17 @@
+# Secrets and tokens -- never commit
+.env
+tokens/
+*.token.json
+
+# Cached data pulls
+data/
+.cache/
+nflreadpy_cache/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated output
+out/
