@@ -30,6 +30,13 @@ SIGNAL_SEASON = 2025
 DRAFT_CLASS = 2026
 OUT = Path(__file__).parent / "out"
 
+# Weeks 1-18 are the regular season; 19-22 are the four playoff rounds.
+# `load_ff_opportunity` carries no season-type column, unlike the stats and snap
+# sources, so the week number is the only filter available. Postseason rows have
+# to go: a player on a deep playoff team otherwise banks four extra games of
+# touchdowns in `td_luck`, which does not cancel the way a share ratio does.
+REGULAR_SEASON_WEEKS = 18
+
 # The owner's own consensus export, in the scoring his league actually uses.
 # Untracked: it is a redistributed third-party ranking, not this project's data.
 ANCHOR_CSV = (
@@ -68,6 +75,24 @@ PINNED_PER_TEAM = {"QB": 1, "TE": 2}
 
 # Age is measured against the season the player turns this age on 1 September.
 AGE_ON = date(DRAFT_CLASS, 9, 1)
+
+# The offensive personnel group in the depth chart source. The other three
+# groups are the two defensive fronts and special teams.
+DEPTH_OFFENCE_GROUP = "3WR 1TE"
+
+# Which teammate is worth showing in the offence depth-chart column. A room-mate
+# qualifies on any one of the three: the consensus already ranks him, someone
+# spent real draft capital on him, or he already took a tenth of the position's
+# work. All three are display thresholds and can be retuned without touching a
+# ranking.
+BIG_NAME_ECR = 150
+BIG_NAME_ROUNDS = (1, 2)
+BIG_NAME_SHARE = 0.10
+
+# How many draft classes count as "recent" for the capital criterion. Unbounded,
+# every long-tenured starter is a former high pick and the criterion selects
+# almost everyone, which is the same as selecting nobody.
+RECENT_DRAFT_CLASSES = 3
 
 POSITION_GROUP = {"RB": "RB", "WR": "WR/TE", "TE": "WR/TE", "QB": "QB"}
 
@@ -177,8 +202,13 @@ def points_curve() -> pl.DataFrame:
 # --------------------------------------------------------------------------
 
 def opportunity_signals() -> pl.DataFrame:
-    """2025 usage share and touchdown luck, per player."""
-    opp = nfl.load_ff_opportunity(seasons=[SIGNAL_SEASON])
+    """2025 regular-season usage share and touchdown luck, per player."""
+    raw = nfl.load_ff_opportunity(seasons=[SIGNAL_SEASON])
+    opp = raw.filter(pl.col("week") <= REGULAR_SEASON_WEEKS)
+    print(f"  usage: {raw.height - opp.height} postseason rows dropped "
+          f"of {raw.height}")
+    if opp.height == raw.height:
+        raise SystemExit("no postseason rows found; check the week column")
     agg = (
         opp.group_by("player_id")
         .agg(
@@ -266,6 +296,156 @@ def draft_capital() -> tuple[pl.DataFrame, pl.DataFrame]:
         .agg(threat_pick=pl.col("pick").min())
     )
     return rookie, threat
+
+
+# --------------------------------------------------------------------------
+# 2b. Who else eats in this player's offence. DISPLAY ONLY.
+#
+# D-009 rejected a target-competition SIGNAL on measurement: a separate "best
+# other pass catcher's share" term added -0.027 once target share was accounted
+# for, because two receivers splitting the targets already IS each man's target
+# share. Nothing below reaches SIGNAL_WEIGHTS, and turning it into a weighted
+# term would need a new decision overturning D-009 on evidence of a different
+# kind. It is here because the owner drafts against a room, not against a row.
+# --------------------------------------------------------------------------
+
+def depth_chart_offence() -> tuple[pl.DataFrame, str]:
+    """The latest 2026 depth chart, offensive skill positions only.
+
+    The source is a series of dated snapshots, roughly one per team per day
+    since March, so the latest `dt` per team is taken rather than every row.
+    It is keyed on `gsis_id`, which the board carries as `player_id`.
+
+    Returns the chart and the snapshot date, which the cheat sheet prints: a
+    mid-August depth chart is provisional, and knowing which day it describes
+    is the whole basis for re-checking it after the final roster cuts (Q-010).
+    """
+    dc = nfl.load_depth_charts(seasons=[DRAFT_CLASS]).filter(
+        (pl.col("pos_grp") == DEPTH_OFFENCE_GROUP)
+        & pl.col("pos_abb").is_in(["QB", "RB", "WR", "TE"])
+        & pl.col("gsis_id").is_not_null()
+    )
+    if dc.is_empty():
+        raise SystemExit("no offensive depth chart rows; check pos_grp naming")
+
+    latest = dc.group_by("team").agg(dt=pl.col("dt").max())
+    dc = dc.join(latest, on=["team", "dt"], how="inner").with_columns(
+        team=norm_team(pl.col("team"))
+    )
+
+    # A player traded between snapshots can still sit on his old team's latest
+    # chart. Keep the row where he is ranked highest, which is the room he is
+    # actually competing in.
+    dc = dc.sort("pos_rank").unique(
+        subset=["gsis_id"], keep="first", maintain_order=True
+    )
+    chart = dc.select(
+        pl.col("gsis_id").alias("player_id"),
+        "team",
+        "player_name",
+        pl.col("pos_abb").alias("depth_pos"),
+        "pos_rank",
+    )
+    return chart, latest["dt"].max()
+
+
+def recent_draft_capital() -> pl.DataFrame:
+    """Round and overall pick for the last few classes, keyed on the gsis id.
+
+    `draft_capital()` reads the same table keyed on the FantasyPros id, because
+    that is the id the ranking signals join on. This column needs the same facts
+    for room-mates who are not in the consensus export at all, and gsis is the
+    only id those players share with the depth chart.
+    """
+    first_class = DRAFT_CLASS - RECENT_DRAFT_CLASSES + 1
+    return (
+        nfl.load_ff_playerids()
+        .filter(
+            (pl.col("draft_year") >= first_class) & pl.col("gsis_id").is_not_null()
+        )
+        .select(
+            pl.col("gsis_id").alias("player_id"),
+            pl.col("draft_year").alias("dc_year"),
+            pl.col("draft_round").alias("dc_round"),
+            pl.col("draft_ovr").alias("dc_pick"),
+        )
+        .unique(subset=["player_id"])
+    )
+
+
+def describe_mate(mate: dict) -> str:
+    """One room-mate as a line of the depth-chart cell."""
+    bits = [f"{mate['player_name']} {mate['depth_pos']}{mate['pos_rank']}"]
+    if mate["ecr"] is not None:
+        bits.append(f"ECR {mate['ecr']:.0f}")
+    # Capital is shown only when it is high capital. A recent sixth-rounder is
+    # in the table because some other criterion put him there, and printing his
+    # round says the opposite of what the column is for.
+    if mate["dc_round"] in BIG_NAME_ROUNDS:
+        bits.append(
+            f"rd{int(mate['dc_round'])} p{int(mate['dc_pick'])} {int(mate['dc_year'])}"
+        )
+    if mate["mate_share"] is not None:
+        kind = "car" if mate["depth_pos"] == "RB" else "tgt"
+        # A share earned somewhere else is the arrival being flagged, not a
+        # claim on this offence, so the old team is named rather than hidden.
+        moved = "" if mate["signal_team"] == mate["team"] else f" was {mate['signal_team']}"
+        bits.append(f"{kind} {mate['mate_share'] * 100:.0f}%{moved}")
+    return " · ".join(bits)
+
+
+def competition_notes(ecr_by_id: pl.DataFrame, opp: pl.DataFrame) -> pl.DataFrame:
+    """Per player, the room-mates at his own position worth knowing about."""
+    chart, snapshot = depth_chart_offence()
+
+    people = (
+        chart.join(ecr_by_id, on="player_id", how="left")
+        .join(
+            opp.select("player_id", "signal_team", "carry_share", "target_share"),
+            on="player_id",
+            how="left",
+        )
+        .join(recent_draft_capital(), on="player_id", how="left")
+        .with_columns(
+            # The model's own convention: a back is measured on carries, a pass
+            # catcher on targets. A quarterback competes for snaps, not touches,
+            # so neither share describes him.
+            mate_share=pl.when(pl.col("depth_pos") == "RB")
+            .then(pl.col("carry_share"))
+            .when(pl.col("depth_pos").is_in(["WR", "TE"]))
+            .then(pl.col("target_share"))
+            .otherwise(None)
+        )
+    )
+
+    # Kleene logic: a null on every criterion leaves the whole test null, which
+    # is not the same as failing it, so the fill is what excludes the unknowns.
+    big_name = (
+        (pl.col("ecr") <= BIG_NAME_ECR)
+        | pl.col("dc_round").is_in(BIG_NAME_ROUNDS)
+        | (pl.col("mate_share") >= BIG_NAME_SHARE)
+    ).fill_null(False)
+
+    rooms: dict[tuple[str, str], list[dict]] = {}
+    for row in people.filter(big_name).sort("pos_rank").iter_rows(named=True):
+        rooms.setdefault((row["team"], row["depth_pos"]), []).append(row)
+
+    notes = []
+    for row in chart.iter_rows(named=True):
+        mates = [
+            m
+            for m in rooms.get((row["team"], row["depth_pos"]), [])
+            if m["player_id"] != row["player_id"]
+        ]
+        notes.append(
+            {
+                "player_id": row["player_id"],
+                "competition": [describe_mate(m) for m in mates],
+                "depth_slot": f"{row['depth_pos']}{row['pos_rank']}",
+                "depth_dt": snapshot,
+            }
+        )
+    return pl.DataFrame(notes)
 
 
 # --------------------------------------------------------------------------
@@ -466,6 +646,25 @@ def build() -> pl.DataFrame:
     ).with_columns(
         rank_move=(pl.col("base_pos_rank") - pl.col("pos_rank")).cast(pl.Int64)
     )
+
+    # Joined last, after every point and rank is already settled, so the depth
+    # chart cannot reach a signal even by accident. See the section header above
+    # and D-009 for why it is not one.
+    ecr_by_id = (
+        base.select("player_id", "ecr")
+        .drop_nulls("player_id")
+        .unique(subset=["player_id"])
+    )
+    df = df.join(competition_notes(ecr_by_id, opp), on="player_id", how="left")
+
+    # A populated id column is not evidence it joins (L-005). An unresolved
+    # player shows an empty column rather than a wrong one, so this reports
+    # rather than guesses.
+    top = df.filter(pl.col("ecr") <= BIG_NAME_ECR)
+    resolved = top.filter(pl.col("competition").is_not_null()).height
+    print(f"  depth chart resolved for {resolved}/{top.height} of the top 150")
+    if resolved < 0.8 * top.height:
+        raise SystemExit("depth chart resolved for under 80% of the top 150")
     return df
 
 
@@ -623,7 +822,7 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
         rows.append(
             "<tr><th>#</th><th>Player</th><th>Pos</th><th>Pos tier</th><th>Team</th>"
             "<th>Proj</th><th>VBD</th><th>Adj</th><th>Moved</th><th>Bye</th>"
-            "<th>Notes</th></tr>"
+            "<th>Notes</th><th>Who else eats</th></tr>"
         )
         for i, r in enumerate(group.iter_rows(named=True), 1):
             notes = []
@@ -635,6 +834,13 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
                 notes.append("changed teams; usage signal not applied")
             if r["signal_team"] is None:
                 notes.append("no 2025 usage data")
+            if r["competition"] is None:
+                room = "<i>not on the depth chart</i>"
+            elif r["competition"]:
+                room = (f"<b>{r['depth_slot']}</b><br>"
+                        + "<br>".join(r["competition"]))
+            else:
+                room = f"<b>{r['depth_slot']}</b> &mdash; no other big name"
             rows.append(
                 f"<tr><td>{i}</td><td>{r['player']}</td>"
                 f"<td>{r['pos']}{r['pos_slot']}</td>"
@@ -642,7 +848,8 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
                 f"<td>{r['team']}</td><td>{r['points']:.0f}</td>"
                 f"<td>{r['vbd']:.0f}</td><td>{r['point_shift']:+.1f}</td>"
                 f"<td>{r['rank_move']:+d}</td>"
-                f"<td>{r['bye'] or ''}</td><td>{'; '.join(notes)}</td></tr>"
+                f"<td>{r['bye'] or ''}</td><td>{'; '.join(notes)}</td>"
+                f"<td>{room}</td></tr>"
             )
         rows.append("</table>")
 
@@ -665,24 +872,41 @@ def write_cheatsheet(board: pl.DataFrame) -> None:
                 f"<span class=vbd>vbd {hi:.0f} to {lo:.0f}</span><br>{names}</p>"
             )
 
+    snapshot = board["depth_dt"].drop_nulls().max() or "unknown"
     html = f"""<!doctype html>
 <meta charset="utf-8"><title>Draft cheat sheet</title>
 <style>
- body {{ font: 14px system-ui, sans-serif; margin: 2rem; max-width: 60rem; }}
+ body {{ font: 14px system-ui, sans-serif; margin: 2rem; max-width: 84rem; }}
  h1 {{ margin-bottom: .25rem; }}
  h2 {{ margin-top: 1.75rem; border-bottom: 2px solid #333; padding-bottom: .2rem; }}
  table {{ border-collapse: collapse; width: 100%; }}
- th, td {{ text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #ddd; }}
+ th, td {{ text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #ddd;
+           vertical-align: top; }}
  th {{ background: #f4f4f4; }}
  td:nth-child(11) {{ color: #a33; font-size: 12px; }}
+ td:nth-child(12) {{ color: #444; font-size: 12px; line-height: 1.45;
+                     min-width: 20rem; }}
  p.postier {{ margin: .4rem 0 .8rem; padding-left: .6rem;
               border-left: 3px solid #ccc; }}
  span.vbd {{ color: #777; font-size: 12px; }}
+ p.legend {{ color: #555; font-size: 12px; max-width: 52rem; }}
 </style>
 <h1>Draft cheat sheet</h1>
 <p>{league.TEAMS} teams, half PPR, two W/R/T flex. Draft {league.DRAFT_TIME}.
 Take any player in the same tier; the order inside a tier is close to a
 coin flip. Kickers and defences are deliberately absent, take them last.</p>
+<p class=legend><b>Who else eats</b> is the offence's own depth chart at this
+player's position, snapshot {snapshot}. Bold is his own slot; each line under it
+is a room-mate, with his depth slot, his consensus rank, his draft capital if he
+went in the first two rounds of the last three classes, and his 2025 share of
+the position's work (carries for a back, targets for a pass catcher). A
+room-mate is listed if any one of those three is big: consensus top
+{BIG_NAME_ECR}, round {BIG_NAME_ROUNDS[0]}-{BIG_NAME_ROUNDS[1]} pick, or
+{BIG_NAME_SHARE:.0%}+ share. &ldquo;was DET&rdquo; means the share was earned on
+another team last year. This column is <b>information, not a ranking input</b>:
+target competition was measured and rejected as a signal (D-009), so nothing
+here moved anybody. Preseason charts are provisional &mdash; re-run after the
+final roster cuts (Q-010).</p>
 {''.join(rows)}
 """
     path = OUT / "cheatsheet.html"
